@@ -1,0 +1,103 @@
+const CACHE = 'perfumaria-fiado-v1';
+const ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.json',
+  './icon-192.svg',
+  './icon-512.svg'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request).then(cached => cached || fetch(event.request))
+  );
+});
+
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="64" fill="#111827"/>
+<text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
+font-family="Arial, sans-serif" font-size="128" font-weight="700" fill="white">PF</text>
+</svg>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>Perfumaria Fiado</title><link rel="stylesheet" href="style.css"></head><body>
+<header><div><h1>Perfumaria Fiado</h1><p>Seu controle de clientes, fiado e estoque</p></div><button id="newClient">+ Cliente</button></header>
+<nav><button class="tab active" data-t="home">Resumo</button><button class="tab" data-t="clients">Clientes</button><button class="tab" data-t="products">Perfumes</button><button class="tab" data-t="charges">Cobranças</button><button class="tab" data-t="settings">Configurações</button></nav>
+<main>
+<section id="home" class="page"><div class="cards"><div class="card"><small>A receber</small><b id="open">R$ 0,00</b></div><div class="card"><small>Recebido</small><b id="received">R$ 0,00</b></div><div class="card"><small>Atrasado</small><b id="late">R$ 0,00</b></div><div class="card"><small>Lucro estimado</small><b id="profit">R$ 0,00</b></div></div><div class="panel"><h2>Próximos vencimentos</h2><div id="next"></div></div></section>
+<section id="clients" class="page hidden"><div class="panel"><div class="head"><h2>Clientes</h2><input id="search" placeholder="Pesquisar cliente"></div><div id="clientList"></div></div></section>
+<section id="products" class="page hidden"><div class="panel"><div class="head"><h2>Perfumes / Estoque</h2><button class="primary" id="newProduct">+ Produto</button></div><div id="productList"></div></div></section>
+<section id="charges" class="page hidden"><div class="panel"><h2>Cobranças</h2><div id="chargeList"></div></div></section>
+<section id="settings" class="page hidden"><div class="panel"><h2>Configurações</h2><label>Nome da loja<input id="storeName"></label><label>Chave PIX<input id="pixKey"></label><label>Cidade<input id="pixCity" placeholder="Sua cidade"></label><button class="primary" id="saveSettings">Salvar</button><p class="muted">A chave PIX é usada para gerar o código da cobrança. O banco que recebe o PIX continua sendo o seu.</p></div></section>
+</main>
+<dialog id="clientDlg"><form method="dialog" id="clientForm"><h2>Novo cliente</h2><label>Nome<input id="cName" required></label><label>WhatsApp<input id="cPhone"></label><label>Observações<textarea id="cNotes"></textarea></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Salvar</button></div></form></dialog>
+<dialog id="productDlg"><form method="dialog" id="productForm"><h2>Novo perfume</h2><label>Nome<input id="pName" required></label><label>Preço de custo<input id="pCost" type="number" step=".01" min="0"></label><label>Preço de venda<input id="pPrice" type="number" step=".01" min="0" required></label><label>Estoque<input id="pStock" type="number" min="0" value="0"></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Salvar</button></div></form></dialog>
+<dialog id="saleDlg"><form method="dialog" id="saleForm"><h2>Nova venda fiada</h2><p id="saleWho"></p><label>Produto / descrição<input id="sDesc" required></label><label>Valor total<input id="sTotal" type="number" step=".01" min=".01" required></label><label>Parcelas<input id="sN" type="number" min="1" value="1"></label><label>Primeiro vencimento<input id="sDate" type="date" required></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Criar venda</button></div></form></dialog>
+<dialog id="viewDlg"><div id="view"></div><div class="actions pad"><button onclick="viewDlg.close()">Fechar</button></div></dialog>
+<dialog id="pixDlg"><div id="pixView"></div><div class="actions pad"><button onclick="pixDlg.close()">Fechar</button></div></dialog>
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+}
+</script>
+
+</body></html>
+*{box-sizing:border-box}body{margin:0;background:#f3f4f6;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{background:#111827;color:white;padding:20px 16px;display:flex;justify-content:space-between;align-items:center}h1{margin:0;font-size:24px}header p{margin:4px 0;color:#cbd5e1}button{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}.primary{background:#111827;color:white}header button{background:white;color:#111827}nav{display:flex;background:white;border-bottom:1px solid #e5e7eb;overflow:auto}nav button{background:white;border-radius:0;white-space:nowrap}.tab.active{border-bottom:3px solid #111827}.page{padding:16px}.hidden{display:none}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.card,.panel{background:white;border-radius:16px;padding:16px;box-shadow:0 2px 12px #0000000b}.card small,.muted{color:#6b7280}.card b{display:block;font-size:20px;margin-top:7px}.head{display:flex;justify-content:space-between;gap:10px;align-items:center}.head input,input,textarea{padding:12px;border:1px solid #d1d5db;border-radius:10px;font-size:16px;width:100%}.head input{max-width:250px}.client,.charge,.product{padding:14px 0;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:12px;align-items:center}.client:first-child,.charge:first-child,.product:first-child{border-top:0}.badge{padding:4px 8px;border-radius:999px;font-size:12px;background:#fef3c7;color:#92400e}.ok{background:#dcfce7;color:#166534}.danger{background:#fee2e2;color:#991b1b}.installment{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px;align-items:center}.small{padding:7px 9px;font-size:12px}.green{background:#dcfce7}.empty{padding:18px 0;color:#6b7280}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.pad{padding:0 20px 20px}dialog{border:0;border-radius:18px;width:min(94%,520px);padding:0;box-shadow:0 20px 70px #0006}dialog::backdrop{background:#0008}form,#view,#pixView{padding:20px}label{display:block;font-weight:650;margin:13px 0}textarea{min-height:80px;resize:vertical}.qr{max-width:260px;width:100%;display:block;margin:15px auto}.copy{width:100%;word-break:break-all;background:#f3f4f6;padding:12px;border-radius:10px}@media(max-width:700px){.cards{grid-template-columns:1fr 1fr}.head{align-items:stretch;flex-direction:column}.head input{max-width:none}.client,.charge,.product{align-items:flex-start;flex-direction:column}.client button,.charge button{width:100%}}
+{
+  "name": "Perfumaria Fiado",
+  "short_name": "Perfumaria",
+  "description": "Gestão de clientes, vendas fiadas, parcelas, pagamentos, produtos e PIX.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111827",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+<rect width="192" height="192" rx="24" fill="#111827"/>
+<text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
+font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="white">PF</text>
+</svg>
+const KEY='perfumaria_final_v1';let db=JSON.parse(localStorage.getItem(KEY)||'{"clients":[],"sales":[],"products":[],"settings":{"store":"Perfumaria","pixKey":"","city":""}}');const $=x=>document.getElementById(x),save=()=>{localStorage.setItem(KEY,JSON.stringify(db));render()},today=()=>new Date().toISOString().slice(0,10),money=n=>Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}),fmt=d=>new Date(d+'T12:00:00').toLocaleDateString('pt-BR');function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}function addM(s,n){let d=new Date(s+'T12:00:00');d.setMonth(d.getMonth()+n);return d.toISOString().slice(0,10)}function st(i){return i.paid?'<span class="badge ok">Pago</span>':i.due<today()?'<span class="badge danger">Atrasada</span>':i.due===today()?'<span class="badge">Vence hoje</span>':'<span class="badge">Pendente</span>'}
+function render(){let open=0,rec=0,late=0,profit=0,pend=[];db.sales.forEach(s=>{let cost=Number(s.cost||0);s.installments.forEach(i=>{if(i.paid)rec+=i.value;else{open+=i.value;pend.push({...i,sid:s.id,cid:s.clientId,desc:s.desc}) ;if(i.due<today())late+=i.value}});profit+=Number(s.price||s.total||0)-cost});$('open').textContent=money(open);$('received').textContent=money(rec);$('late').textContent=money(late);$('profit').textContent=money(profit);pend.sort((a,b)=>a.due.localeCompare(b.due));$('next').innerHTML=pend.slice(0,7).map(chargeHTML).join('')||'<div class="empty">Nenhum vencimento pendente.</div>';$('chargeList').innerHTML=pend.map(chargeHTML).join('')||'<div class="empty">Nenhuma cobrança pendente.</div>';let q=($('search').value||'').toLowerCase();$('clientList').innerHTML=db.clients.filter(c=>c.name.toLowerCase().includes(q)).map(c=>{let bal=0;db.sales.filter(s=>s.clientId===c.id).forEach(s=>s.installments.forEach(i=>{if(!i.paid)bal+=i.value}));return `<div class="client"><div><b>${esc(c.name)}</b><div class="muted">${esc(c.phone||'Sem WhatsApp')} • ${money(bal)} em aberto</div></div><button onclick="openClient('${c.id}')">Abrir</button></div>`}).join('')||'<div class="empty">Nenhum cliente.</div>';$('productList').innerHTML=db.products.map(p=>`<div class="product"><div><b>${esc(p.name)}</b><div class="muted">Venda ${money(p.price)} • Custo ${money(p.cost)} • Lucro ${money(p.price-p.cost)}</div></div><strong>Estoque: ${p.stock}</strong></div>`).join('')||'<div class="empty">Nenhum perfume cadastrado.</div>'}
+function chargeHTML(i){let c=db.clients.find(x=>x.id===i.cid);return `<div class="charge"><div><b>${esc(c?.name||'Cliente')} — ${money(i.value)}</b><div class="muted">${esc(i.desc)} • ${fmt(i.due)} ${st(i)}</div></div><div><button class="small" onclick="showPix('${i.sid}','${i.id}')">PIX</button> <button class="small green" onclick="pay('${i.sid}','${i.id}')">Recebido</button></div></div>`}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.add('hidden'));$(b.dataset.t).classList.remove('hidden')});$('search').oninput=render;
+$('newClient').onclick=()=>{$('clientForm').reset();clientDlg.showModal()};$('clientForm').onsubmit=e=>{e.preventDefault();db.clients.push({id:crypto.randomUUID(),name:$('cName').value.trim(),phone:$('cPhone').value.trim(),notes:$('cNotes').value.trim()});save();clientDlg.close()};
+$('newProduct').onclick=()=>{$('productForm').reset();productDlg.showModal()};$('productForm').onsubmit=e=>{e.preventDefault();db.products.push({id:crypto.randomUUID(),name:$('pName').value.trim(),cost:+$('pCost').value||0,price:+$('pPrice').value,stock:+$('pStock').value||0});save();productDlg.close()};
+let active=null;window.openClient=id=>{active=db.clients.find(c=>c.id===id);let sales=db.sales.filter(s=>s.clientId===id),h=`<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone||'Sem WhatsApp')}</p><button class="primary" onclick="newSale()">+ Nova venda fiada</button>`;sales.forEach(s=>{h+=`<hr><b>${esc(s.desc)} — ${money(s.total)}</b>`;s.installments.forEach((i,k)=>h+=`<div class="installment"><div class="row"><span>${k+1}/${s.installments.length} • ${money(i.value)}</span><span>${fmt(i.due)}</span></div><div class="row">${st(i)} ${i.paid?`<span class="muted">Pago ${fmt(i.paidAt)}</span>`:`<button class="small" onclick="showPix('${s.id}','${i.id}')">PIX</button><button class="small green" onclick="pay('${s.id}','${i.id}')">Recebido</button>`}</div></div>`)});$('view').innerHTML=h;viewDlg.showModal()};window.newSale=()=>{viewDlg.close();$('saleForm').reset();$('saleWho').textContent='Cliente: '+active.name;$('sDate').value=today();saleDlg.showModal()};
+$('saleForm').onsubmit=e=>{e.preventDefault();let total=+$('sTotal').value,n=+$('sN').value,base=Math.floor(total/n*100)/100,last=Math.round((total-base*(n-1))*100)/100;db.sales.push({id:crypto.randomUUID(),clientId:active.id,desc:$('sDesc').value.trim(),total,price:total,cost:0,installments:Array.from({length:n},(_,k)=>({id:crypto.randomUUID(),value:k===n-1?last:base,due:addM($('sDate').value,k),paid:false}))});save();saleDlg.close();openClient(active.id)};
+window.pay=(sid,iid)=>{let s=db.sales.find(x=>x.id===sid),i=s.installments.find(x=>x.id===iid);i.paid=true;i.paidAt=today();save();if(active)openClient(active.id)};
+function crc(str){let c=0xffff;for(let i=0;i<str.length;i++){c^=str.charCodeAt(i)<<8;for(let j=0;j<8;j++)c=(c&0x8000)?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff}return c.toString(16).toUpperCase().padStart(4,'0')}
+function fld(id,v){return id+String(v.length).padStart(2,'0')+v}function pix(key,amount,name,city,tx){let mai=fld('00','BR.GOV.BCB.PIX');let m=fld('26',fld('00','BR.GOV.BCB.PIX')+fld('01',key));let add=fld('62',fld('05',tx.slice(0,25)));let body=fld('00','01')+fld('01','12')+m+fld('52','0000')+fld('53','986')+fld('54',amount.toFixed(2))+fld('58','BR')+fld('59',name.slice(0,25))+fld('60',city.slice(0,15))+add+'6304';return body+crc(body)}
+window.showPix=(sid,iid)=>{let s=db.sales.find(x=>x.id===sid),i=s.installments.find(x=>x.id===iid),c=db.clients.find(x=>x.id===s.clientId),key=db.settings.pixKey;if(!key){alert('Cadastre sua chave PIX em Configurações.');return}let code=pix(key,i.value,db.settings.store||'PERFUMARIA',db.settings.city||'BRASIL',iid.replaceAll('-',''));let msg=`Olá, ${c.name}! Sua parcela de ${money(i.value)} vence em ${fmt(i.due)}. PIX Copia e Cola:\n${code}\nApós pagar, envie o comprovante.`;$('pixView').innerHTML=`<h2>PIX da parcela</h2><p><b>${money(i.value)}</b> • vencimento ${fmt(i.due)}</p><p class="muted">PIX Copia e Cola</p><div class="copy">${esc(code)}</div><div class="actions"><button class="primary" onclick="navigator.clipboard.writeText('${code}');alert('PIX copiado!')">Copiar PIX</button><button onclick="navigator.clipboard.writeText(${JSON.stringify(msg)});alert('Mensagem copiada!')">Copiar cobrança</button></div><p class="muted">Para QR Code, esta tela pode ser ampliada na próxima publicação do app com uma biblioteca de QR.</p>`;pixDlg.showModal()};
+$('saveSettings').onclick=()=>{db.settings.store=$('storeName').value.trim()||'Perfumaria';db.settings.pixKey=$('pixKey').value.trim();db.settings.city=$('pixCity').value.trim()||'BRASIL';save();alert('Configurações salvas.')};$('storeName').value=db.settings.store;$('pixKey').value=db.settings.pixKey;$('pixCity').value=db.settings.city;render();
