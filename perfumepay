@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-v1';
+const CACHE = 'perfumaria-pay-v1';
 const ASSETS = [
   './',
   './index.html',
