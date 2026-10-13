@@ -1,5 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
-<rect width="192" height="192" rx="24" fill="#111827"/>
-<text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
-font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="white">PF</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <!-- Gradientes Neon -->
+    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f3ff"/>
+      <stop offset="100%" stop-color="#0066ff"/>
+    </linearGradient>
+    <linearGradient id="neonPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff007f"/>
+      <stop offset="100%" stop-color="#9d00ff"/>
+    </linearGradient>
+    <linearGradient id="neonGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ff88"/>
+      <stop offset="100%" stop-color="#00b8ff"/>
+    </linearGradient>
+    
+    <!-- Filtro de Brilho Neon (Glow) -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Fundo Preto Sólido -->
+  <rect width="800" height="800" fill="#05050a"/>
+
+  <!-- Grupo Principal com Efeito Neon -->
+  <g filter="url(#glow)" transform="translate(0, 0)">
+    
+    <!-- Hexágono Tecnológico Externo -->
+    <polygon points="400,90 640,225 640,495 400,630 160,495 160,225" 
+             fill="none" stroke="url(#neonCyan)" stroke-width="6" stroke-linejoin="round"/>
+    
+    <!-- Hexágono Interno -->
+    <polygon points="400,130 600,240 600,460 400,570 200,460 200,240" 
+             fill="none" stroke="url(#neonPink)" stroke-width="2" stroke-linejoin="round" opacity="0.8"/>
+
+    <!-- Detalhes de Circuito (Linhas Geométricas) -->
+    <path d="M 280,300 H 230 V 380 H 260" fill="none" stroke="url(#neonCyan)" stroke-width="2" opacity="0.6"/>
+    <path d="M 520,300 H 570 V 380 H 540" fill="none" stroke="url(#neonGreen)" stroke-width="2" opacity="0.6"/>
+    
+    <!-- Ícone Estilizado do Frasco de Perfume -->
+    <g transform="translate(400, 240)">
+      <!-- Tampa -->
+      <rect x="-18" y="-45" width="36" height="20" rx="3" fill="none" stroke="url(#neonCyan)" stroke-width="3"/>
+      <line x1="0" y1="-45" x2="0" y2="-25" stroke="url(#neonCyan)" stroke-width="3"/>
+      
+      <!-- Corpo do Frasco (Diamante/Geométrico) -->
+      <polygon points="0,-25 45,5 25,50 -25,50 -45,5" 
+               fill="none" stroke="url(#neonPink)" stroke-width="3" stroke-linejoin="round"/>
+      
+      <!-- Linhas internas do frasco -->
+      <line x1="-25" y1="5" x2="25" y2="5" stroke="url(#neonCyan)" stroke-width="1.5" opacity="0.7"/>
+      <line x1="0" y1="-25" x2="0" y2="50" stroke="url(#neonCyan)" stroke-width="1.5" opacity="0.7"/>
+    </g>
+
+    <!-- Caixa de Texto Central (PERFUME PAY) -->
+    <g transform="translate(400, 420)">
+      <!-- Fundo escuro translúcido para o texto -->
+      <polygon points="-210,-45 210,-45 230,0 210,45 -210,45 -230,0" 
+               fill="#05050aa0" stroke="url(#neonCyan)" stroke-width="3" stroke-linejoin="round"/>
+      
+      <!-- Texto PERFUME -->
+      <text x="0" y="-8" fill="#ffffff" font-family="'Segoe UI', Roboto, sans-serif" 
+            font-weight="900" font-size="42" letter-spacing="4" text-anchor="middle" 
+            filter="url(#glow)">PERFUME</text>
+      
+      <!-- Texto PAY -->
+      <text x="0" y="32" fill="url(#neonPink)" font-family="'Segoe UI', Roboto, sans-serif" 
+            font-weight="900" font-size="42" letter-spacing="6" text-anchor="middle" 
+            filter="url(#glow)">PAY</text>
+    </g>
+
+    <!-- Detalhes de Rodapé Neon (Verde) -->
+    <path d="M 300,580 H 500" stroke="url(#neonGreen)" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="260" cy="580" r="4" fill="#00ff88"/>
+    <circle cx="540" cy="580" r="4" fill="#00ff88"/>
+  </g>
 </svg>
