@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-firebase-v2';
+const CACHE = 'perfumaria-fiado-firebase-secure-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -18,7 +18,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k.startsWith('perfumaria-fiado-') && k !== CACHE).map(k => caches.delete(k)))
     )
   );
   self.clients.claim();

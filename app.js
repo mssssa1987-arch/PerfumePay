@@ -1,4 +1,5 @@
-const KEY = 'perfumaria_final_v1';
+// Chave antiga usada só para uma migração explícita e única. A versão segura não mantém dados de clientes no localStorage.
+const LEGACY_KEY = 'perfumaria_final_v1';
 const DEFAULT_DB = {
   clients: [],
   sales: [],
@@ -8,7 +9,12 @@ const DEFAULT_DB = {
 const $ = id => document.getElementById(id);
 let firebaseUser = null;
 let cloudReady = false;
+let currentDocRef = null;
 let saveTimer = null;
+let inFlightSave = null;
+let changeRevision = 0;
+let savedRevision = 0;
+let writeFailed = false;
 let active = null;
 let selectedSaleProductId = null;
 
@@ -45,11 +51,10 @@ function normalizeDatabase(input) {
   return { db: normalized, changed };
 }
 
-let initialData;
-try { initialData = JSON.parse(localStorage.getItem(KEY) || 'null') || DEFAULT_DB; }
-catch (_) { initialData = DEFAULT_DB; }
-let db = normalizeDatabase(initialData).db;
-localStorage.setItem(KEY, JSON.stringify(db));
+function emptyDatabase() { return JSON.parse(JSON.stringify(DEFAULT_DB)); }
+// Não carregamos nenhuma cópia local antes da autenticação. Os dados só entram na memória
+// depois de serem lidos com sucesso do documento Firestore pertencente à conta autenticada.
+let db = emptyDatabase();
 
 const setSync = text => { const el = $('syncBar'); if (el) el.textContent = text; };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -74,24 +79,73 @@ function st(installment) {
 }
 
 function save() {
-  localStorage.setItem(KEY, JSON.stringify(db));
-  render();
-  if (firebaseUser && cloudReady) {
-    setSync('Salvando na nuvem…');
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      try {
-        await firebase.firestore().collection('users').doc(firebaseUser.uid)
-          .collection('appData').doc('main')
-          .set({ data: db, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-        setSync('Sincronizado na nuvem ✓');
-      } catch (error) {
-        console.error(error);
-        setSync('Erro ao salvar na nuvem. Confira a conexão e as regras do Firestore.');
-      }
-    }, 400);
+  // Bloqueia gravações se a sessão ou o documento remoto não estiverem prontos.
+  if (!firebaseUser || !cloudReady || !currentDocRef) {
+    setSync('Bloqueado: a nuvem não está pronta. Nenhuma alteração foi sincronizada.');
+    render();
+    return false;
   }
+  changeRevision++;
+  render();
+  writeFailed = false;
+  setSync('Alterações pendentes — salvando na nuvem…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { void flushPendingSave(); }, 350);
+  return true;
 }
+
+function flushPendingSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (inFlightSave) {
+    return inFlightSave.then(() => {
+      if (cloudReady && firebaseUser && savedRevision < changeRevision && !writeFailed) return flushPendingSave();
+      return !writeFailed && savedRevision >= changeRevision;
+    });
+  }
+  if (!firebaseUser || !cloudReady || !currentDocRef) return Promise.resolve(false);
+  if (savedRevision >= changeRevision && !writeFailed) return Promise.resolve(true);
+
+  const userId = firebaseUser.uid;
+  const docRef = currentDocRef;
+  inFlightSave = (async () => {
+    try {
+      while (savedRevision < changeRevision) {
+        const revisionBeingSaved = changeRevision;
+        const payload = JSON.parse(JSON.stringify(db));
+        await docRef.set({ data: payload, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        // Se a sessão mudou, não atualizamos o estado visual da nova conta com o resultado antigo.
+        if (!firebaseUser || firebaseUser.uid !== userId || currentDocRef !== docRef) return false;
+        savedRevision = revisionBeingSaved;
+      }
+      writeFailed = false;
+      setSync('Sincronizado na nuvem ✓');
+      return true;
+    } catch (error) {
+      console.error(error);
+      writeFailed = true;
+      setSync('FALHA ao sincronizar. Toque aqui para tentar novamente.');
+      return false;
+    }
+  })();
+
+  const promise = inFlightSave.finally(() => {
+    inFlightSave = null;
+    if (!writeFailed && cloudReady && firebaseUser && currentDocRef && savedRevision < changeRevision) {
+      saveTimer = setTimeout(() => { void flushPendingSave(); }, 50);
+    }
+  });
+  inFlightSave = promise;
+  return promise;
+}
+
+$('syncBar').addEventListener('click', () => {
+  if (writeFailed) {
+    writeFailed = false;
+    setSync('Tentando sincronizar novamente…');
+    void flushPendingSave();
+  }
+});
 
 function render() {
   let open = 0, received = 0, late = 0, profit = 0;
@@ -406,7 +460,7 @@ $('pixKey').value = db.settings.pixKey;
 $('pixCity').value = db.settings.city;
 render();
 
-// Firebase Auth + Firestore. Os dados locais permanecem como cópia neste aparelho.
+// Firebase Auth + Firestore: os dados não são mantidos em localStorage.
 (function setupCloud() {
   try {
     firebase.initializeApp(firebaseConfig);
@@ -415,83 +469,190 @@ render();
     $('loginMessage').textContent = 'Não foi possível iniciar o Firebase. Confira firebase-config.js.';
     return;
   }
+
   const auth = firebase.auth();
   const store = firebase.firestore();
+  const retryButton = $('retryCloudBtn');
+
+  function clearSessionData() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    // Fecha também os diálogos de detalhes/PIX antes de limpar a tela, para que não fique
+    // informação antiga na camada modal do navegador depois de sair ou trocar de conta.
+    ['clientDlg', 'productDlg', 'saleDlg', 'viewDlg', 'pixDlg'].forEach(id => {
+      const dialog = $(id);
+      if (dialog && dialog.open) dialog.close();
+    });
+    ['clientForm', 'productForm', 'saleForm'].forEach(id => { const form = $(id); if (form) form.reset(); });
+    $('view').innerHTML = '';
+    $('pixView').innerHTML = '';
+    $('search').value = '';
+    cloudReady = false;
+    currentDocRef = null;
+    active = null;
+    selectedSaleProductId = null;
+    db = emptyDatabase();
+    changeRevision = 0;
+    savedRevision = 0;
+    writeFailed = false;
+    $('storeName').value = '';
+    $('pixKey').value = '';
+    $('pixCity').value = '';
+    render();
+  }
+
+  function showLogin(message, canRetry = false) {
+    $('appShell').classList.add('hidden');
+    $('cloudLogin').classList.remove('hidden');
+    $('loginMessage').textContent = message || '';
+    retryButton.hidden = !canRetry;
+  }
+
+  function hasMeaningfulLegacyData(data) {
+    return !!(data && (
+      (Array.isArray(data.clients) && data.clients.length) ||
+      (Array.isArray(data.sales) && data.sales.length) ||
+      (Array.isArray(data.products) && data.products.length) ||
+      (data.settings && (data.settings.pixKey || data.settings.store && data.settings.store !== 'Perfumaria' || data.settings.city))
+    ));
+  }
+
+  async function loadUserData(user) {
+    if (!user || !auth.currentUser || auth.currentUser.uid !== user.uid) return;
+    clearSessionData();
+    firebaseUser = user;
+    showLogin('Conta autenticada. Carregando seus dados protegidos…');
+    setSync('Carregando dados da nuvem…');
+
+    try {
+      const ref = store.collection('users').doc(user.uid).collection('appData').doc('main');
+      const snapshot = await ref.get();
+      if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+
+      let loadedDb;
+      let shouldWrite = false;
+      if (snapshot.exists) {
+        const envelope = snapshot.data();
+        if (!envelope || !envelope.data || typeof envelope.data !== 'object') {
+          throw new Error('O documento principal existe, mas não tem o formato de dados esperado. Nenhum dado foi alterado.');
+        }
+        const normalized = normalizeDatabase(envelope.data);
+        loadedDb = normalized.db;
+        shouldWrite = normalized.changed;
+      } else {
+        // Migração antiga é sempre explícita. Nunca importamos automaticamente o cache global para outra conta.
+        let legacyDb = null;
+        try {
+          const raw = localStorage.getItem(LEGACY_KEY);
+          if (raw) legacyDb = normalizeDatabase(JSON.parse(raw)).db;
+        } catch (parseError) {
+          console.warn('O cache antigo não pôde ser interpretado; ele não será importado.', parseError);
+        }
+        if (hasMeaningfulLegacyData(legacyDb)) {
+          const choice = prompt(
+            'ATENÇÃO: esta versão encontrou dados salvos pelo aplicativo antigo neste navegador. Eles podem pertencer a outra conta.\n\n' +
+            'Para importar os dados antigos para a conta ' + user.email + ', digite exatamente:\nIMPORTAR DADOS ANTIGOS\n\n' +
+            'Para iniciar esta conta vazia, digite:\nVAZIO\n\n' +
+            'Qualquer outra resposta cancela a abertura por segurança.'
+          );
+          if (String(choice || '').trim() === 'IMPORTAR DADOS ANTIGOS') {
+            loadedDb = legacyDb;
+          } else if (String(choice || '').trim() === 'VAZIO') {
+            loadedDb = emptyDatabase();
+          } else {
+            showLogin('A abertura foi cancelada por segurança. Os dados antigos não foram importados nem apagados. Clique em “Tentar carregar novamente” para escolher.', true);
+            setSync('Aguardando escolha de migração segura.');
+            return;
+          }
+        } else {
+          loadedDb = emptyDatabase();
+        }
+        // Só gravamos o documento inicial após a escolha de migração, se necessária.
+        if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+        await ref.set({ data: loadedDb, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      }
+
+      if (shouldWrite) {
+        if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+        await ref.set({ data: loadedDb, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      }
+      if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+
+      // Firestore é a fonte de verdade. O cache global legado é removido somente depois de
+      // confirmar que os dados dessa conta foram lidos/criados com sucesso na nuvem.
+      try { localStorage.removeItem(LEGACY_KEY); } catch (_) { /* armazenamento local pode estar bloqueado */ }
+      db = loadedDb;
+      currentDocRef = ref;
+      changeRevision = 0;
+      savedRevision = 0;
+      cloudReady = true;
+      retryButton.hidden = true;
+      $('loginPassword').value = '';
+      $('cloudLogin').classList.add('hidden');
+      $('appShell').classList.remove('hidden');
+      $('storeName').value = db.settings.store || 'Perfumaria';
+      $('pixKey').value = db.settings.pixKey || '';
+      $('pixCity').value = db.settings.city || '';
+      render();
+      setSync('Sincronizado na nuvem ✓');
+    } catch (error) {
+      console.error(error);
+      clearSessionData();
+      showLogin('Não foi possível carregar com segurança os dados da nuvem. O aplicativo ficou bloqueado e nenhuma alteração local foi enviada. Verifique a conexão e as regras do Firestore; depois tente novamente.', true);
+      setSync('Nuvem indisponível — edição bloqueada.');
+    }
+  }
+
   $('loginBtn').onclick = async () => {
     const email = $('loginEmail').value.trim(), password = $('loginPassword').value;
     if (!email || !password) { $('loginMessage').textContent = 'Digite seu e-mail e sua senha.'; return; }
     $('loginMessage').textContent = 'Entrando…';
-    try { await auth.signInWithEmailAndPassword(email, password); }
+    try { await auth.signInWithEmailAndPassword(email, password); $('loginPassword').value = ''; }
     catch (error) { $('loginMessage').textContent = authMessage(error); }
   };
+
   $('createBtn').onclick = async () => {
     const email = $('loginEmail').value.trim(), password = $('loginPassword').value;
     if (!email || password.length < 6) { $('loginMessage').textContent = 'Digite um e-mail válido e uma senha com pelo menos 6 caracteres.'; return; }
     $('loginMessage').textContent = 'Criando conta…';
-    try { await auth.createUserWithEmailAndPassword(email, password); }
+    try { await auth.createUserWithEmailAndPassword(email, password); $('loginPassword').value = ''; }
     catch (error) { $('loginMessage').textContent = authMessage(error); }
   };
-  $('logoutBtn').onclick = async () => {
-    cloudReady = false;
-    firebaseUser = null;
-    await auth.signOut();
-    $('appShell').classList.add('hidden');
-    $('cloudLogin').classList.remove('hidden');
-    $('loginMessage').textContent = 'Você saiu da conta. Seus dados locais continuam neste aparelho.';
+
+  retryButton.onclick = async () => {
+    if (auth.currentUser) await loadUserData(auth.currentUser);
+    else $('loginMessage').textContent = 'Entre novamente para carregar os dados da nuvem.';
   };
+
+  $('logoutBtn').onclick = async () => {
+    clearTimeout(saveTimer);
+    if (cloudReady && savedRevision < changeRevision) {
+      const synced = await flushPendingSave();
+      if (!synced && !confirm('Existem alterações que não foram sincronizadas. Se sair agora, elas serão descartadas desta sessão. Deseja sair mesmo assim?')) return;
+    }
+    try {
+      await auth.signOut();
+    } catch (error) {
+      console.error(error);
+      alert('Não foi possível encerrar a sessão. Tente novamente.');
+      return;
+    }
+    firebaseUser = null;
+    clearSessionData();
+    showLogin('Você saiu da conta. Os dados pessoais foram removidos da memória desta sessão.');
+  };
+
   auth.onAuthStateChanged(async user => {
+    clearSessionData();
     firebaseUser = user || null;
-    cloudReady = false;
     if (!user) {
-      $('appShell').classList.add('hidden');
-      $('cloudLogin').classList.remove('hidden');
+      showLogin('Entre para acessar seus dados sincronizados na nuvem.');
       setSync('Desconectado');
       return;
     }
-    $('cloudLogin').classList.add('hidden');
-    $('appShell').classList.remove('hidden');
-    setSync('Carregando dados da nuvem…');
-    try {
-      const ref = store.collection('users').doc(user.uid).collection('appData').doc('main');
-      const snapshot = await ref.get();
-      let shouldWriteMigration = false;
-      if (snapshot.exists && snapshot.data() && snapshot.data().data) {
-        const normalized = normalizeDatabase(snapshot.data().data);
-        db = normalized.db;
-        shouldWriteMigration = normalized.changed;
-        localStorage.setItem(KEY, JSON.stringify(db));
-        setSync('Dados carregados da nuvem ✓');
-      } else {
-        let localDb;
-        try { localDb = normalizeDatabase(JSON.parse(localStorage.getItem(KEY) || '{}')).db; }
-        catch (_) { localDb = JSON.parse(JSON.stringify(DEFAULT_DB)); }
-        const hasLocal = localDb.clients.length || localDb.sales.length || localDb.products.length;
-        if (hasLocal) {
-          const useLocal = confirm('Não há dados salvos na nuvem nesta conta. Deseja enviar para a nuvem os dados que já estão neste aparelho?\n\nEscolha Cancelar para começar com a nuvem vazia (os dados locais não serão apagados).');
-          if (useLocal) db = localDb;
-          else { db = JSON.parse(JSON.stringify(DEFAULT_DB)); localStorage.setItem(KEY, JSON.stringify(db)); }
-        } else db = JSON.parse(JSON.stringify(DEFAULT_DB));
-        await ref.set({ data: db, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-      }
-      // Garante que os códigos automáticos de produtos antigos também fiquem salvos na nuvem.
-      const afterNormalize = normalizeDatabase(db);
-      db = afterNormalize.db;
-      if (shouldWriteMigration || afterNormalize.changed) {
-        await ref.set({ data: db, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-        localStorage.setItem(KEY, JSON.stringify(db));
-      }
-      cloudReady = true;
-      render();
-      $('storeName').value = db.settings.store || 'Perfumaria';
-      $('pixKey').value = db.settings.pixKey || '';
-      $('pixCity').value = db.settings.city || '';
-      setSync('Sincronizado na nuvem ✓');
-    } catch (error) {
-      console.error(error);
-      setSync('Não foi possível acessar a nuvem. Verifique as regras do Firestore.');
-      alert('O login funcionou, mas não conseguimos ler ou gravar no Firestore. Confira as regras de segurança.');
-    }
+    await loadUserData(user);
   });
+
   function authMessage(error) {
     const code = error && error.code;
     return ({
