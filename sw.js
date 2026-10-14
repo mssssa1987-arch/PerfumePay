@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-firebase-secure-v5-audit';
+const CACHE = 'perfumaria-fiado-firebase-secure-v6-client-product-controls';
 const ASSETS = [
   './',
   './index.html',

@@ -173,17 +173,37 @@ function render() {
   const clientQuery = ($('search').value || '').toLowerCase().trim();
   $('clientList').innerHTML = db.clients.filter(c => String(c.name || '').toLowerCase().includes(clientQuery)).map(client => {
     let balance = 0;
+    let overdue = 0;
     activeSales().filter(sale => sale.clientId === client.id).forEach(sale => {
-      (sale.installments || []).forEach(installment => { if (!installment.paid) balance += Number(installment.value || 0); });
+      (sale.installments || []).forEach(installment => {
+        if (!installment.paid) {
+          balance += Number(installment.value || 0);
+          if (installment.due < today()) overdue += Number(installment.value || 0);
+        }
+      });
     });
-    return `<div class="client"><div><b>${esc(client.name)}</b><div class="muted">${esc(client.phone || 'Sem WhatsApp')} • ${money(balance)} em aberto</div></div><button type="button" data-action="open-client" data-id="${esc(client.id)}">Abrir</button></div>`;
+    const blocked = client.salesBlocked === true;
+    return `<div class="client"><div><b>${esc(client.name)}</b>${blocked ? ' <span class="badge danger">Venda bloqueada</span>' : ''}<div class="muted">${esc(client.phone || 'Sem WhatsApp')} • ${money(balance)} em aberto${overdue > 0 ? ` • ${money(overdue)} atrasados` : ''}</div></div><div class="client-row-actions"><button type="button" data-action="open-client" data-id="${esc(client.id)}">Abrir</button><button type="button" class="small danger-button" data-action="delete-client" data-id="${esc(client.id)}">Excluir</button></div></div>`;
   }).join('') || '<div class="empty">Nenhum cliente.</div>';
 
-  $('productList').innerHTML = db.products.map(product => `
+  const renderProduct = product => {
+    const discontinued = product.active === false;
+    const actions = discontinued
+      ? `<button type="button" class="small" data-action="restore-product" data-id="${esc(product.id)}">Reativar</button>`
+      : `<button type="button" class="small" data-action="adjust-stock" data-id="${esc(product.id)}">Ajustar estoque</button><button type="button" class="small warning-button" data-action="archive-product" data-id="${esc(product.id)}">Descontinuar</button>`;
+    return `
     <div class="product">
-      <div><b>${esc(product.name)}</b><div class="muted">Código: <strong>${esc(product.code || '—')}</strong> • Venda ${money(product.price)} • Custo ${money(product.cost)} • Lucro ${money(Number(product.price || 0) - Number(product.cost || 0))}</div></div>
-      <div class="stock-actions"><strong>Estoque: ${Number(product.stock || 0)}</strong><button type="button" class="small" data-action="adjust-stock" data-id="${esc(product.id)}">Ajustar estoque</button></div>
-    </div>`).join('') || '<div class="empty">Nenhum perfume cadastrado.</div>';
+      <div><b>${esc(product.name)}</b>${discontinued ? ' <span class="badge">Descontinuado</span>' : ''}<div class="muted">Código: <strong>${esc(product.code || '—')}</strong> • Venda ${money(product.price)} • Custo ${money(product.cost)} • Lucro ${money(Number(product.price || 0) - Number(product.cost || 0))}</div></div>
+      <div class="stock-actions"><strong>Estoque: ${Number(product.stock || 0)}</strong>${actions}<button type="button" class="small danger-button" data-action="delete-product" data-id="${esc(product.id)}">Excluir</button></div>
+    </div>`;
+  };
+  const currentProducts = db.products.filter(product => product.active !== false);
+  const discontinuedProducts = db.products.filter(product => product.active === false);
+  const currentMarkup = currentProducts.map(renderProduct).join('') || '<div class="empty">Nenhum produto ativo cadastrado.</div>';
+  const discontinuedMarkup = discontinuedProducts.length
+    ? `<details class="discontinued-products"><summary>Produtos descontinuados (${discontinuedProducts.length})</summary>${discontinuedProducts.map(renderProduct).join('')}</details>`
+    : '';
+  $('productList').innerHTML = currentMarkup + discontinuedMarkup;
 }
 
 function chargeHTML(installment) {
@@ -204,6 +224,11 @@ document.addEventListener('click', event => {
     case 'undo-payment': window.undoPayment(saleId, installmentId); break;
     case 'cancel-sale': window.cancelSale(saleId); break;
     case 'new-sale': window.newSale(); break;
+    case 'toggle-client-block': window.toggleClientSalesBlock(id); break;
+    case 'delete-client': window.deleteClient(id); break;
+    case 'archive-product': window.archiveProduct(id); break;
+    case 'restore-product': window.restoreProduct(id); break;
+    case 'delete-product': window.deleteProduct(id); break;
   }
 });
 
@@ -220,11 +245,15 @@ $('closePixDlg').onclick = () => $('pixDlg').close();
 
 // Clientes.
 $('newClient').onclick = () => { $('clientForm').reset(); $('clientDlg').showModal(); };
+$('cancelClient').onclick = () => { $('clientForm').reset(); $('clientDlg').close(); };
 $('clientForm').onsubmit = event => {
   event.preventDefault();
-  db.clients.push({ id: crypto.randomUUID(), name: $('cName').value.trim(), phone: $('cPhone').value.trim(), notes: $('cNotes').value.trim() });
+  const name = $('cName').value.trim();
+  if (!name) { $('cName').focus(); return; }
+  db.clients.push({ id: crypto.randomUUID(), name, phone: $('cPhone').value.trim(), notes: $('cNotes').value.trim(), salesBlocked: false });
   save();
   $('clientDlg').close();
+  $('clientForm').reset();
 };
 
 // Produtos e códigos únicos.
@@ -233,6 +262,7 @@ $('newProduct').onclick = () => {
   $('pCode').value = nextProductCode();
   $('productDlg').showModal();
 };
+$('cancelProduct').onclick = () => { $('productForm').reset(); $('productDlg').close(); };
 $('productForm').onsubmit = event => {
   event.preventDefault();
   const name = $('pName').value.trim();
@@ -246,10 +276,12 @@ $('productForm').onsubmit = event => {
     id: crypto.randomUUID(), code, name,
     cost: Number($('pCost').value) || 0,
     price: Number($('pPrice').value),
-    stock: Number($('pStock').value) || 0
+    stock: Number($('pStock').value) || 0,
+    active: true
   });
   save();
   $('productDlg').close();
+  $('productForm').reset();
 };
 window.adjustStock = id => {
   const product = db.products.find(item => item.id === id);
@@ -261,6 +293,45 @@ window.adjustStock = id => {
   product.stock = quantity;
   save();
   alert('Estoque atualizado.');
+};
+
+// Descontinuar mantém o cadastro para preservar o histórico das vendas e permitir o cancelamento seguro.
+window.archiveProduct = id => {
+  const product = db.products.find(item => item.id === id);
+  if (!product || product.active === false) return;
+  if (!confirm(`Descontinuar “${product.name}”? O produto deixará de aparecer na pesquisa de novas vendas, mas será mantido para preservar o histórico e as operações de estoque.`)) return;
+  product.active = false;
+  product.discontinuedAt = today();
+  save();
+  render();
+};
+
+window.restoreProduct = id => {
+  const product = db.products.find(item => item.id === id);
+  if (!product || product.active !== false) return;
+  if (!confirm(`Reativar “${product.name}” para que volte a aparecer na pesquisa de vendas?`)) return;
+  product.active = true;
+  delete product.discontinuedAt;
+  save();
+  render();
+};
+
+window.deleteProduct = id => {
+  const product = db.products.find(item => item.id === id);
+  if (!product) return;
+  const linkedSales = db.sales.filter(sale => sale.productId === id);
+  if (linkedSales.length) {
+    alert('Este produto está vinculado ao histórico de vendas. Para preservar os registros e permitir cancelamentos corretos, não é possível excluí-lo permanentemente. Use “Descontinuar” para retirá-lo das novas vendas.');
+    return;
+  }
+  if (Number(product.stock || 0) !== 0) {
+    alert('Este produto ainda tem unidades no estoque. Ajuste a quantidade para zero antes de excluí-lo, ou use “Descontinuar” para manter o registro sem permitir novas vendas.');
+    return;
+  }
+  if (!confirm(`Excluir permanentemente o produto “${product.name}” (${product.code || 'sem código'})? Esta ação não pode ser desfeita.`)) return;
+  db.products = db.products.filter(item => item.id !== id);
+  save();
+  render();
 };
 
 // Busca de produtos por nome ou código no formulário da venda.
@@ -277,9 +348,9 @@ function renderProductSearch() {
     results.innerHTML = '<div class="muted search-help">Digite o nome ou o código para pesquisar. Você também pode deixar vazio para uma venda sem produto do estoque.</div>';
     return;
   }
-  const matches = db.products.filter(product =>
+  const matches = db.products.filter(product => product.active !== false && (
     String(product.name || '').toLowerCase().includes(query) || String(product.code || '').toLowerCase().includes(query)
-  ).slice(0, 8);
+  )).slice(0, 8);
   const matchMarkup = matches.map(product => `<button type="button" class="product-result" data-product-id="${esc(product.id)}"><span><b>${esc(product.name)}</b><small>Código: ${esc(product.code || '—')} • Estoque: ${Number(product.stock || 0)}</small></span><strong>${money(product.price)}</strong></button>`).join('');
   results.innerHTML = matchMarkup || '<div class="muted search-help">Nenhum produto encontrado com esse nome ou código.</div>';
   if (matches.length) results.querySelectorAll('[data-product-id]').forEach(button => {
@@ -327,7 +398,14 @@ window.openClient = id => {
   active = db.clients.find(client => client.id === id);
   if (!active) return;
   const sales = activeSales().filter(sale => sale.clientId === id);
-  let html = `<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone || 'Sem WhatsApp')}</p><button type="button" class="primary" data-action="new-sale">+ Nova venda fiada</button>`;
+  const blocked = active.salesBlocked === true;
+  const overdueTotal = sales.reduce((total, sale) => total + (sale.installments || []).reduce((subtotal, installment) => {
+    return subtotal + (!installment.paid && installment.due < today() ? Number(installment.value || 0) : 0);
+  }, 0), 0);
+  let html = `<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone || 'Sem WhatsApp')}</p>`;
+  if (blocked) html += `<p class="client-blocked-notice"><b>VENDAS BLOQUEADAS</b><br>Motivo: ${esc(active.salesBlockReason || 'Atraso no pagamento')} • Desde ${esc(active.salesBlockedAt || 'data não registrada')}.</p>`;
+  if (overdueTotal > 0) html += `<p class="late-notice">Parcelas vencidas em aberto: <b>${money(overdueTotal)}</b>.</p>`;
+  html += `<div class="client-actions"><button type="button" class="primary" data-action="new-sale" ${blocked ? 'disabled' : ''}>${blocked ? 'Vendas bloqueadas' : '+ Nova venda fiada'}</button><button type="button" class="${blocked ? 'green' : 'warning-button'}" data-action="toggle-client-block" data-id="${esc(active.id)}">${blocked ? 'Desbloquear vendas' : 'Bloquear novas vendas por atraso'}</button><button type="button" class="small danger-button" data-action="delete-client" data-id="${esc(active.id)}">Excluir cliente</button></div>`;
   if (!sales.length) html += '<div class="empty">Este cliente ainda não tem vendas ativas.</div>';
   sales.forEach(sale => {
     const product = db.products.find(item => item.id === sale.productId);
@@ -341,6 +419,11 @@ window.openClient = id => {
 };
 
 window.newSale = () => {
+  if (!active) return;
+  if (active.salesBlocked === true) {
+    alert('As novas vendas para este cliente estão bloqueadas por atraso no pagamento. Desbloqueie o cliente primeiro se decidir autorizar uma nova venda.');
+    return;
+  }
   $('viewDlg').close();
   $('saleForm').reset();
   selectedSaleProductId = null;
@@ -355,10 +438,24 @@ window.newSale = () => {
 
 $('saleForm').onsubmit = event => {
   event.preventDefault();
+  const currentClient = active ? db.clients.find(client => client.id === active.id) : null;
+  if (!currentClient) { alert('Selecione um cliente válido antes de registrar a venda.'); return; }
+  if (currentClient.salesBlocked === true) {
+    alert('Esta conta de cliente está bloqueada para novas vendas. Desbloqueie o cliente antes de continuar.');
+    $('saleDlg').close();
+    openClient(currentClient.id);
+    return;
+  }
   const total = Number($('sTotal').value);
   const installmentsCount = Number($('sN').value);
   const quantity = Number($('sQty').value) || 1;
   const product = selectedSaleProductId ? db.products.find(item => item.id === selectedSaleProductId) : null;
+  if (product && product.active === false) {
+    alert('Este produto foi descontinuado e não pode ser usado em novas vendas. Escolha outro produto.');
+    selectedSaleProductId = null;
+    renderProductSearch();
+    return;
+  }
   if ($('sProductSearch').value.trim() && !product) {
     alert('Escolha um produto na lista de resultados ou limpe a pesquisa para fazer uma venda sem vincular ao estoque.');
     $('sProductSearch').focus();
@@ -374,7 +471,7 @@ $('saleForm').onsubmit = event => {
   let base = Math.floor(total / installmentsCount * 100) / 100;
   let last = Math.round((total - base * (installmentsCount - 1)) * 100) / 100;
   db.sales.push({
-    id: crypto.randomUUID(), clientId: active.id,
+    id: crypto.randomUUID(), clientId: currentClient.id,
     productId: product ? product.id : null,
     productCode: product ? String(product.code || '') : null,
     quantity: product ? quantity : null,
@@ -389,7 +486,76 @@ $('saleForm').onsubmit = event => {
   if (product) product.stock = Number(product.stock || 0) - quantity;
   save();
   $('saleDlg').close();
-  openClient(active.id);
+  $('saleForm').reset();
+  openClient(currentClient.id);
+};
+
+$('cancelSale').onclick = () => {
+  $('saleForm').reset();
+  selectedSaleProductId = null;
+  $('saleDlg').close();
+  if (active && db.clients.some(client => client.id === active.id)) openClient(active.id);
+};
+
+window.toggleClientSalesBlock = id => {
+  const client = db.clients.find(item => item.id === id);
+  if (!client) return;
+  if (client.salesBlocked === true) {
+    if (!confirm(`Desbloquear novas vendas para ${client.name}? O aplicativo voltará a permitir novas vendas fiadas para este cliente.`)) return;
+    client.salesBlocked = false;
+    delete client.salesBlockedAt;
+    delete client.salesBlockReason;
+    save();
+    render();
+    if (active && active.id === id) openClient(id);
+    alert('Cliente desbloqueado para novas vendas.');
+    return;
+  }
+
+  const overdueInstallments = activeSales().filter(sale => sale.clientId === id).flatMap(sale => sale.installments || [])
+    .filter(installment => !installment.paid && installment.due < today());
+  if (!overdueInstallments.length) {
+    alert('Este cliente não tem parcelas vencidas em aberto. O bloqueio por atraso só pode ser aplicado quando houver pelo menos uma parcela vencida.');
+    return;
+  }
+  const overdueTotal = overdueInstallments.reduce((sum, installment) => sum + Number(installment.value || 0), 0);
+  if (!confirm(`Bloquear novas vendas para ${client.name}?\n\nHá ${overdueInstallments.length} parcela(s) vencida(s), totalizando ${money(overdueTotal)}. O cliente continuará aparecendo no sistema e as cobranças existentes não serão alteradas.`)) return;
+  client.salesBlocked = true;
+  client.salesBlockedAt = today();
+  client.salesBlockReason = 'Atraso no pagamento';
+  save();
+  render();
+  if (active && active.id === id) openClient(id);
+  alert('Novas vendas bloqueadas para este cliente. As vendas existentes e as cobranças continuam disponíveis.');
+};
+
+window.deleteClient = id => {
+  const client = db.clients.find(item => item.id === id);
+  if (!client) return;
+  const linkedSales = db.sales.filter(sale => sale.clientId === id);
+  const activeLinkedSales = linkedSales.filter(sale => !sale.cancelled);
+  if (activeLinkedSales.length) {
+    alert(`Não é possível excluir ${client.name} porque existem ${activeLinkedSales.length} venda(s) ativa(s) vinculada(s). Se a venda foi cadastrada por engano, cancele-a primeiro e depois tente excluir o cliente.`);
+    return;
+  }
+  const hasReceivedPayments = linkedSales.some(sale => (sale.installments || []).some(installment => installment.paid));
+  if (hasReceivedPayments) {
+    alert('Não é possível excluir este cliente porque o histórico contém parcelas marcadas como recebidas. Mantenha o cadastro para preservar o histórico financeiro.');
+    return;
+  }
+  const cancelledCount = linkedSales.length;
+  const detail = cancelledCount
+    ? `\n\nTambém serão removidas ${cancelledCount} venda(s) já cancelada(s), sem parcelas recebidas, vinculada(s) a esse cadastro.`
+    : '';
+  if (!confirm(`Excluir permanentemente o cadastro de ${client.name}? Esta ação não pode ser desfeita.${detail}`)) return;
+  db.clients = db.clients.filter(item => item.id !== id);
+  // Só são removidas vendas quando já estão canceladas e não possuem pagamentos registrados.
+  db.sales = db.sales.filter(sale => sale.clientId !== id);
+  if (active && active.id === id) active = null;
+  save();
+  render();
+  if ($('viewDlg').open) $('viewDlg').close();
+  alert('Cliente excluído. Como não havia vendas ativas nem parcelas recebidas, o resumo financeiro não foi alterado.');
 };
 
 window.pay = (saleId, installmentId) => {

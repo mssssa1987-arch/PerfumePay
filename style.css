@@ -8,3 +8,16 @@
 
 /* Ferramentas de backup e restauração da conta */
 .backup-panel{margin-top:16px}.backup-actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.backup-actions button{min-height:42px}.backup-panel p{line-height:1.5}@media(max-width:600px){.backup-actions{flex-direction:column}.backup-actions button{width:100%}}
+
+/* Novos controles de clientes e catálogo de estoque */
+.client-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+.client-actions button:disabled{opacity:.55;cursor:not-allowed}
+.client-blocked-notice,.late-notice{padding:12px;border-radius:10px;margin:10px 0;color:#92400e;background:#fef3c7;line-height:1.45}
+.client-blocked-notice{color:#991b1b;background:#fee2e2}
+.stock-actions{flex-wrap:wrap}
+.stock-actions button{max-width:100%}
+@media(max-width:600px){.client-actions{flex-direction:column}.client-actions button{width:100%}.stock-actions{align-items:stretch;width:100%}.stock-actions button{width:100%}}
+.client-row-actions{display:flex;gap:8px;flex-shrink:0}
+@media(max-width:600px){.client-row-actions{width:100%}.client-row-actions button{flex:1}}
+.discontinued-products{border-top:1px solid #e5e7eb;margin-top:14px;padding-top:12px}
+.discontinued-products summary{cursor:pointer;font-weight:700;color:#6b7280;padding:8px 0}
