@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-firebase-v1';
+const CACHE = 'perfumaria-fiado-firebase-v2';
 const ASSETS = [
   './',
   './index.html',
