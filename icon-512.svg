@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-<rect width="512" height="512" rx="64" fill="#111827"/>
-<text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
-font-family="Arial, sans-serif" font-size="128" font-weight="700" fill="white">PF</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 192 192" fill="none">
+<defs><linearGradient id="g" x1="30" y1="12" x2="160" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE7B7"/><stop offset=".5" stop-color="#E7B665"/><stop offset="1" stop-color="#A86D2E"/></linearGradient><radialGradient id="bg" cx="0" cy="0" r="1" gradientTransform="translate(48 20) rotate(55) scale(204)" gradientUnits="userSpaceOnUse"><stop stop-color="#302216"/><stop offset="1" stop-color="#080706"/></radialGradient></defs>
+<rect width="192" height="192" rx="38" fill="url(#bg)"/><rect x="5" y="5" width="182" height="182" rx="34" stroke="url(#g)" stroke-opacity=".55"/>
+<path d="M96 17 165 96 96 175 27 96 96 17Z" stroke="url(#g)" stroke-width="4" stroke-linejoin="round"/>
+<path d="M81 41h30v13H81zM85 54v11l-6 8v11c-12 8-17 15-17 27v27c0 10 7 17 17 17h34c10 0 17-7 17-17v-27c0-12-5-19-17-27V73l-6-8V54" fill="#E9B96C" fill-opacity=".08" stroke="url(#g)" stroke-width="3.5" stroke-linejoin="round"/><path d="M78 91h36M73 111h46" stroke="url(#g)" stroke-width="2" stroke-linecap="round" opacity=".8"/>
 </svg>

@@ -204,6 +204,70 @@ function render() {
     ? `<details class="discontinued-products"><summary>Produtos descontinuados (${discontinuedProducts.length})</summary>${discontinuedProducts.map(renderProduct).join('')}</details>`
     : '';
   $('productList').innerHTML = currentMarkup + discontinuedMarkup;
+  renderReports();
+}
+
+function renderReports() {
+  const monthInput = $('reportMonth');
+  if (!monthInput) return;
+  if (!monthInput.value) monthInput.value = today().slice(0, 7);
+  const month = /^\d{4}-\d{2}$/.test(monthInput.value) ? monthInput.value : today().slice(0, 7);
+  const sales = activeSales();
+  const salesForMonth = sales.filter(sale => String(sale.createdAt || sale.saleDate || sale.date || '').slice(0, 7) === month);
+  const sumSales = salesForMonth.reduce((sum, sale) => sum + Number(sale.total || sale.price || 0), 0);
+  const receivedInMonth = sales.flatMap(sale => (sale.installments || []).map(installment => ({ ...installment, saleId: sale.id })))
+    .filter(installment => installment.paid && String(installment.paidAt || '').slice(0, 7) === month)
+    .reduce((sum, installment) => sum + Number(installment.value || 0), 0);
+  let openNow = 0, lateNow = 0;
+  sales.forEach(sale => (sale.installments || []).forEach(installment => {
+    if (!installment.paid) {
+      const value = Number(installment.value || 0);
+      openNow += value;
+      if (installment.due < today()) lateNow += value;
+    }
+  }));
+  const estimatedProfit = salesForMonth.reduce((sum, sale) => sum + Number(sale.total || sale.price || 0) - Number(sale.cost || 0), 0);
+  $('reportSales').textContent = money(sumSales);
+  $('reportSalesMeta').textContent = `${salesForMonth.length} venda(s) registrada(s)`;
+  $('reportReceived').textContent = money(receivedInMonth);
+  $('reportOpen').textContent = money(openNow);
+  $('reportLate').textContent = money(lateNow);
+  $('reportProfit').textContent = money(estimatedProfit);
+
+  const [selectedYear, selectedMonth] = month.split('-').map(Number);
+  const chartMonths = [];
+  for (let offset = 5; offset >= 0; offset--) {
+    const d = new Date(selectedYear, selectedMonth - 1 - offset, 1, 12, 0, 0);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const total = sales.filter(sale => String(sale.createdAt || sale.saleDate || sale.date || '').slice(0, 7) === key)
+      .reduce((sum, sale) => sum + Number(sale.total || sale.price || 0), 0);
+    chartMonths.push({ key, total, label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') });
+  }
+  const maxChart = Math.max(1, ...chartMonths.map(item => item.total));
+  $('salesChart').innerHTML = chartMonths.map(item => {
+    const height = item.total > 0 ? Math.max(8, item.total / maxChart * 100) : 3;
+    const compact = item.total > 0 ? `R$ ${Math.round(item.total).toLocaleString('pt-BR')}` : '—';
+    return `<div class="chart-item"><strong>${compact}</strong><div class="bar-track"><div class="chart-bar" style="height:${height}%" title="${esc(item.label)}: ${money(item.total)}"></div></div><small>${esc(item.label)}</small></div>`;
+  }).join('');
+
+  const sortedSales = [...salesForMonth].sort((a, b) => String(b.createdAt || b.saleDate || b.date || '').localeCompare(String(a.createdAt || a.saleDate || a.date || '')));
+  $('monthlySales').innerHTML = sortedSales.map(sale => {
+    const client = db.clients.find(item => item.id === sale.clientId);
+    const saleDate = String(sale.createdAt || sale.saleDate || sale.date || '').slice(0, 10);
+    return `<div class="report-row"><div><b>${esc(sale.desc || 'Venda')}</b><small>${esc(client?.name || 'Cliente removido')} • ${saleDate ? fmt(saleDate) : 'Data não registrada'}${sale.productCode ? ` • Código ${esc(sale.productCode)}` : ''}</small></div><strong>${money(sale.total || sale.price || 0)}</strong></div>`;
+  }).join('') || '<div class="empty">Nenhuma venda com data registrada neste mês.</div>';
+
+  const activeProducts = db.products.filter(product => product.active !== false);
+  const stockUnits = activeProducts.reduce((sum, product) => sum + Math.max(0, Number(product.stock || 0)), 0);
+  const stockCost = activeProducts.reduce((sum, product) => sum + Math.max(0, Number(product.stock || 0)) * Number(product.cost || 0), 0);
+  const lowStock = activeProducts.filter(product => Number(product.stock || 0) <= 3).sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+  $('stockSummary').innerHTML = `<div class="stock-stat"><small>Produtos ativos</small><b>${activeProducts.length}</b><p>Itens cadastrados para venda</p></div><div class="stock-stat"><small>Unidades disponíveis</small><b>${stockUnits}</b><p>Somente produtos ativos</p></div><div class="stock-stat"><small>Valor de custo em estoque</small><b>${money(stockCost)}</b><p>Estimativa baseada no custo cadastrado</p></div><div class="stock-alerts"><h3>Estoque baixo (3 unidades ou menos)</h3>${lowStock.length ? lowStock.map(product => `<div class="report-row"><div><b>${esc(product.name)}</b><small>Código ${esc(product.code || '—')}</small></div><strong>${Number(product.stock || 0)} un.</strong></div>`).join('') : '<div class="empty">Nenhum produto com estoque baixo.</div>'}</div>`;
+
+  const undatedSales = sales.filter(sale => !String(sale.createdAt || sale.saleDate || sale.date || '').trim()).length;
+  const undatedPaid = sales.flatMap(sale => sale.installments || []).filter(installment => installment.paid && !String(installment.paidAt || '').trim()).length;
+  let note = 'Os totais mensais usam a data registrada na venda e a data registrada no recebimento. O saldo em aberto e os atrasos representam a situação atual. Vendas canceladas não entram nos totais.';
+  if (undatedSales || undatedPaid) note += ` Registros antigos sem data: ${undatedSales} venda(s) e ${undatedPaid} recebimento(s) pago(s) não podem ser atribuídos a um mês com segurança e, por isso, ficam fora dos totais mensais.`;
+  $('reportNote').textContent = note;
 }
 
 function chargeHTML(installment) {
@@ -240,6 +304,7 @@ document.querySelectorAll('.tab').forEach(button => button.onclick = () => {
   $(button.dataset.t).classList.remove('hidden');
 });
 $('search').oninput = render;
+$('reportMonth').addEventListener('change', renderReports);
 $('closeViewDlg').onclick = () => $('viewDlg').close();
 $('closePixDlg').onclick = () => $('pixDlg').close();
 
@@ -472,6 +537,7 @@ $('saleForm').onsubmit = event => {
   let last = Math.round((total - base * (installmentsCount - 1)) * 100) / 100;
   db.sales.push({
     id: crypto.randomUUID(), clientId: currentClient.id,
+    createdAt: today(),
     productId: product ? product.id : null,
     productCode: product ? String(product.code || '') : null,
     quantity: product ? quantity : null,

@@ -1,25 +1,15 @@
 {
-  "name": "Perfumaria Fiado",
-  "short_name": "Perfumaria",
-  "description": "Gestão de clientes, vendas fiadas, parcelas, pagamentos, produtos e PIX.",
+  "name": "PerfumePay | Gestão para Perfumarias",
+  "short_name": "PerfumePay",
+  "description": "Gestão de clientes, vendas fiadas, cobranças, estoque e relatórios financeiros para perfumarias.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#111827",
+  "background_color": "#0b0907",
+  "theme_color": "#0b0907",
   "orientation": "portrait",
   "icons": [
-    {
-      "src": "icon-192.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icon-512.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "icon-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }
