@@ -1,6 +1,9 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>Perfumaria Fiado</title><link rel="stylesheet" href="style.css"></head><body>
-<header><div><h1>Perfumaria Fiado</h1><p>Seu controle de clientes, fiado e estoque</p></div><button id="newClient">+ Cliente</button></header>
-<nav><button class="tab active" data-t="home">Resumo</button><button class="tab" data-t="clients">Clientes</button><button class="tab" data-t="products">Perfumes</button><button class="tab" data-t="charges">Cobranças</button><button class="tab" data-t="settings">Configurações</button></nav>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>Perfumaria Fiado</title><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="style.css"></head><body>
+<section id="cloudLogin" class="cloud-login"><h2>Entrar para sincronizar</h2><p>Use uma conta de e-mail e senha para acessar seus dados na nuvem.</p><label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label><label>Senha<input id="loginPassword" type="password" autocomplete="current-password" minlength="6" required></label><div class="login-actions"><button class="primary" id="loginBtn">Entrar</button><button id="createBtn">Criar conta</button></div><p id="loginMessage" class="muted" role="status"></p><p class="muted">Use dados fictícios durante os testes. Nunca compartilhe sua senha.</p></section>
+<div id="appShell" class="app-shell hidden">
+<header><div><h1>Perfumaria Fiado</h1><p>Seu controle de clientes, fiado e estoque</p></div><button id="logoutBtn">Sair</button></header>
+<div id="syncBar" class="sync-bar">Conectando...</div>
+<nav><button class="tab active" data-t="home">Resumo</button><button class="tab" data-t="clients">Clientes</button><button class="tab" data-t="products">Perfumes</button><button class="tab" data-t="charges">Cobranças</button><button class="tab" data-t="settings">Configurações</button><button id="newClient">+ Cliente</button></nav>
 <main>
 <section id="home" class="page"><div class="cards"><div class="card"><small>A receber</small><b id="open">R$ 0,00</b></div><div class="card"><small>Recebido</small><b id="received">R$ 0,00</b></div><div class="card"><small>Atrasado</small><b id="late">R$ 0,00</b></div><div class="card"><small>Lucro estimado</small><b id="profit">R$ 0,00</b></div></div><div class="panel"><h2>Próximos vencimentos</h2><div id="next"></div></div></section>
 <section id="clients" class="page hidden"><div class="panel"><div class="head"><h2>Clientes</h2><input id="search" placeholder="Pesquisar cliente"></div><div id="clientList"></div></div></section>
@@ -11,13 +14,6 @@
 <dialog id="clientDlg"><form method="dialog" id="clientForm"><h2>Novo cliente</h2><label>Nome<input id="cName" required></label><label>WhatsApp<input id="cPhone"></label><label>Observações<textarea id="cNotes"></textarea></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Salvar</button></div></form></dialog>
 <dialog id="productDlg"><form method="dialog" id="productForm"><h2>Novo perfume</h2><label>Nome<input id="pName" required></label><label>Preço de custo<input id="pCost" type="number" step=".01" min="0"></label><label>Preço de venda<input id="pPrice" type="number" step=".01" min="0" required></label><label>Estoque<input id="pStock" type="number" min="0" value="0"></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Salvar</button></div></form></dialog>
 <dialog id="saleDlg"><form method="dialog" id="saleForm"><h2>Nova venda fiada</h2><p id="saleWho"></p><label>Produto do estoque (opcional)<select id="sProduct"><option value="">Venda sem vincular ao estoque</option></select></label><label>Descrição da venda<input id="sDesc" required></label><label>Quantidade<input id="sQty" type="number" min="1" step="1" value="1" required></label><label>Valor total<input id="sTotal" type="number" step=".01" min=".01" required></label><p class="muted" id="stockHint">Se escolher um produto do estoque, a quantidade será baixada ao criar a venda.</p><label>Parcelas<input id="sN" type="number" min="1" value="1"></label><label>Primeiro vencimento<input id="sDate" type="date" required></label><div class="actions"><button value="cancel">Cancelar</button><button class="primary">Criar venda</button></div></form></dialog>
-<dialog id="viewDlg"><div id="view"></div><div class="actions pad"><button onclick="viewDlg.close()">Fechar</button></div></dialog>
-<dialog id="pixDlg"><div id="pixView"></div><div class="actions pad"><button onclick="pixDlg.close()">Fechar</button></div></dialog>
-<script src="app.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
-}
-</script>
-
-</body></html>
+<dialog id="viewDlg"><div id="view"></div><div class="actions pad"><button onclick="viewDlg.close()">Fechar</button></div></dialog><dialog id="pixDlg"><div id="pixView"></div><div class="actions pad"><button onclick="pixDlg.close()">Fechar</button></div></dialog>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script><script src="firebase-config.js"></script><script src="app.js"></script><script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js'));}</script></body></html>
