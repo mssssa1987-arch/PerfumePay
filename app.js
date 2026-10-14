@@ -455,6 +455,125 @@ $('saveSettings').onclick = () => {
   save();
   alert('Configurações salvas.');
 };
+
+// Backup manual: exporta somente depois de confirmar que as alterações pendentes foram sincronizadas.
+const BACKUP_FORMAT = 'PerfumePay-backup';
+const BACKUP_VERSION = 1;
+$('exportBackup').onclick = async () => {
+  const button = $('exportBackup');
+  if (!firebaseUser || !cloudReady || !currentDocRef) {
+    alert('Entre na sua conta e aguarde os dados carregarem da nuvem antes de fazer o backup.');
+    return;
+  }
+  button.disabled = true;
+  try {
+    setSync('Conferindo sincronização antes do backup…');
+    const synced = await flushPendingSave();
+    if (!synced || writeFailed || savedRevision < changeRevision) {
+      setSync('Backup não criado: há dados que não foram sincronizados.');
+      alert('Não criei o backup porque não consegui confirmar que todas as alterações foram salvas na nuvem. Verifique a conexão e tente novamente.');
+      return;
+    }
+    const ownerUid = firebaseUser.uid;
+    const backup = {
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      ownerUid,
+      ownerEmail: firebaseUser.email || '',
+      data: JSON.parse(JSON.stringify(db))
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `PerfumePay-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setSync('Backup baixado; dados sincronizados na nuvem ✓');
+    alert('Cópia de segurança criada. Guarde o arquivo em local privado: ele contém dados de clientes, vendas e a chave Pix. O arquivo não é criptografado.');
+  } catch (error) {
+    console.error(error);
+    setSync('Não foi possível criar o backup.');
+    alert('Não foi possível criar a cópia de segurança. Verifique a conexão e tente novamente.');
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('chooseBackup').onclick = () => {
+  if (!firebaseUser || !cloudReady || !currentDocRef) {
+    alert('Entre na sua conta e aguarde os dados carregarem antes de restaurar uma cópia.');
+    return;
+  }
+  $('backupFile').click();
+};
+
+$('backupFile').onchange = async event => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    if (!firebaseUser || !cloudReady || !currentDocRef) throw new Error('A conta não está pronta para restaurar.');
+    const raw = await file.text();
+    const backup = JSON.parse(raw);
+    if (!backup || backup.format !== BACKUP_FORMAT || backup.version !== BACKUP_VERSION) {
+      throw new Error('Este arquivo não é uma cópia de segurança compatível do PerfumePay.');
+    }
+    if (backup.ownerUid !== firebaseUser.uid) {
+      throw new Error('Esta cópia pertence a outra conta. Por segurança, só é possível restaurá-la na conta que a criou.');
+    }
+    const data = backup.data;
+    if (!data || typeof data !== 'object' || !Array.isArray(data.clients) || !Array.isArray(data.sales) || !Array.isArray(data.products) || !data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
+      throw new Error('O arquivo está incompleto ou não contém os dados esperados. Nenhum dado foi alterado.');
+    }
+    const restoredDb = normalizeDatabase(data).db;
+    // Primeiro, garante que o estado atual não tem alterações pendentes.
+    const synced = await flushPendingSave();
+    if (!synced || writeFailed || savedRevision < changeRevision) {
+      throw new Error('Existem alterações atuais que não foi possível sincronizar. A restauração foi cancelada para evitar perda de dados.');
+    }
+    const stamp = backup.exportedAt ? new Date(backup.exportedAt).toLocaleString('pt-BR') : 'data desconhecida';
+    const summary = `Arquivo: ${file.name}
+Data da cópia: ${stamp}
+Clientes: ${restoredDb.clients.length}
+Produtos: ${restoredDb.products.length}
+Vendas: ${restoredDb.sales.length}
+
+ATENÇÃO: isso substituirá TODOS os dados atuais desta conta pela cópia escolhida.`;
+    if (!confirm(summary)) return;
+    const phrase = prompt('Para confirmar, digite exatamente RESTAURAR CÓPIA. A ação substituirá os dados atuais da nuvem.');
+    if (String(phrase || '').trim() !== 'RESTAURAR CÓPIA') {
+      alert('Restauração cancelada. Nenhum dado foi substituído.');
+      return;
+    }
+    const ownerAtStart = firebaseUser.uid;
+    const docAtStart = currentDocRef;
+    setSync('Restaurando cópia de segurança na nuvem…');
+    await docAtStart.set({ data: restoredDb, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    // Não repintar os dados antigos/restaurados se o usuário trocou de conta durante a operação.
+    if (!firebaseUser || firebaseUser.uid !== ownerAtStart || currentDocRef !== docAtStart || !cloudReady) return;
+    db = restoredDb;
+    changeRevision++;
+    savedRevision = changeRevision;
+    writeFailed = false;
+    $('storeName').value = db.settings.store || 'Perfumaria';
+    $('pixKey').value = db.settings.pixKey || '';
+    $('pixCity').value = db.settings.city || '';
+    render();
+    setSync('Cópia restaurada e sincronizada na nuvem ✓');
+    alert('Cópia restaurada com sucesso. Atualize a página e confirme que os dados aparecem corretamente.');
+  } catch (error) {
+    console.error(error);
+    setSync('Não foi possível restaurar a cópia.');
+    alert(error && error.message ? error.message : 'Não foi possível restaurar a cópia. Nenhum dado foi alterado se a gravação não foi concluída.');
+  } finally {
+    $('backupFile').value = '';
+  }
+};
+
 $('storeName').value = db.settings.store;
 $('pixKey').value = db.settings.pixKey;
 $('pixCity').value = db.settings.city;
