@@ -176,20 +176,36 @@ function render() {
     activeSales().filter(sale => sale.clientId === client.id).forEach(sale => {
       (sale.installments || []).forEach(installment => { if (!installment.paid) balance += Number(installment.value || 0); });
     });
-    return `<div class="client"><div><b>${esc(client.name)}</b><div class="muted">${esc(client.phone || 'Sem WhatsApp')} • ${money(balance)} em aberto</div></div><button onclick="openClient('${esc(client.id)}')">Abrir</button></div>`;
+    return `<div class="client"><div><b>${esc(client.name)}</b><div class="muted">${esc(client.phone || 'Sem WhatsApp')} • ${money(balance)} em aberto</div></div><button type="button" data-action="open-client" data-id="${esc(client.id)}">Abrir</button></div>`;
   }).join('') || '<div class="empty">Nenhum cliente.</div>';
 
   $('productList').innerHTML = db.products.map(product => `
     <div class="product">
       <div><b>${esc(product.name)}</b><div class="muted">Código: <strong>${esc(product.code || '—')}</strong> • Venda ${money(product.price)} • Custo ${money(product.cost)} • Lucro ${money(Number(product.price || 0) - Number(product.cost || 0))}</div></div>
-      <div class="stock-actions"><strong>Estoque: ${Number(product.stock || 0)}</strong><button class="small" onclick="adjustStock('${esc(product.id)}')">Ajustar estoque</button></div>
+      <div class="stock-actions"><strong>Estoque: ${Number(product.stock || 0)}</strong><button type="button" class="small" data-action="adjust-stock" data-id="${esc(product.id)}">Ajustar estoque</button></div>
     </div>`).join('') || '<div class="empty">Nenhum perfume cadastrado.</div>';
 }
 
 function chargeHTML(installment) {
   const client = db.clients.find(c => c.id === installment.cid);
-  return `<div class="charge"><div><b>${esc(client?.name || 'Cliente')} — ${money(installment.value)}</b><div class="muted">${esc(installment.desc)} • ${fmt(installment.due)} ${st(installment)}</div></div><div><button class="small" onclick="showPix('${esc(installment.sid)}','${esc(installment.id)}')">PIX</button> <button class="small green" onclick="pay('${esc(installment.sid)}','${esc(installment.id)}')">Recebido</button></div></div>`;
+  return `<div class="charge"><div><b>${esc(client?.name || 'Cliente')} — ${money(installment.value)}</b><div class="muted">${esc(installment.desc)} • ${fmt(installment.due)} ${st(installment)}</div></div><div><button type="button" class="small" data-action="show-pix" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">PIX</button> <button type="button" class="small green" data-action="pay" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">Recebido</button></div></div>`;
 }
+
+// Delegação de eventos para botões dinâmicos. Valores vindos dos dados nunca entram em código inline.
+document.addEventListener('click', event => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const { action, id, saleId, installmentId } = button.dataset;
+  switch (action) {
+    case 'open-client': window.openClient(id); break;
+    case 'adjust-stock': window.adjustStock(id); break;
+    case 'show-pix': window.showPix(saleId, installmentId); break;
+    case 'pay': window.pay(saleId, installmentId); break;
+    case 'undo-payment': window.undoPayment(saleId, installmentId); break;
+    case 'cancel-sale': window.cancelSale(saleId); break;
+    case 'new-sale': window.newSale(); break;
+  }
+});
 
 // Navegação entre abas.
 document.querySelectorAll('.tab').forEach(button => button.onclick = () => {
@@ -199,6 +215,8 @@ document.querySelectorAll('.tab').forEach(button => button.onclick = () => {
   $(button.dataset.t).classList.remove('hidden');
 });
 $('search').oninput = render;
+$('closeViewDlg').onclick = () => $('viewDlg').close();
+$('closePixDlg').onclick = () => $('pixDlg').close();
 
 // Clientes.
 $('newClient').onclick = () => { $('clientForm').reset(); $('clientDlg').showModal(); };
@@ -309,13 +327,13 @@ window.openClient = id => {
   active = db.clients.find(client => client.id === id);
   if (!active) return;
   const sales = activeSales().filter(sale => sale.clientId === id);
-  let html = `<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone || 'Sem WhatsApp')}</p><button class="primary" onclick="newSale()">+ Nova venda fiada</button>`;
+  let html = `<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone || 'Sem WhatsApp')}</p><button type="button" class="primary" data-action="new-sale">+ Nova venda fiada</button>`;
   if (!sales.length) html += '<div class="empty">Este cliente ainda não tem vendas ativas.</div>';
   sales.forEach(sale => {
     const product = db.products.find(item => item.id === sale.productId);
-    html += `<div class="sale-heading"><div><b>${esc(sale.desc)} — ${money(sale.total)}</b>${sale.productId ? `<div class="muted">Produto: ${esc(product?.name || 'Produto removido')} • Código: ${esc(product?.code || '—')} • Quantidade: ${Number(sale.quantity || 1)}</div>` : ''}</div><button class="small danger-button" onclick="cancelSale('${esc(sale.id)}')">Cancelar venda</button></div>`;
+    html += `<div class="sale-heading"><div><b>${esc(sale.desc)} — ${money(sale.total)}</b>${sale.productId ? `<div class="muted">Produto: ${esc(product?.name || 'Produto removido')} • Código: ${esc(product?.code || '—')} • Quantidade: ${Number(sale.quantity || 1)}</div>` : ''}</div><button type="button" class="small danger-button" data-action="cancel-sale" data-sale-id="${esc(sale.id)}">Cancelar venda</button></div>`;
     (sale.installments || []).forEach((installment, index) => {
-      html += `<div class="installment"><div class="row"><span>${index + 1}/${sale.installments.length} • ${money(installment.value)}</span><span>${fmt(installment.due)}</span></div><div class="row">${st(installment)} ${installment.paid ? `<span class="muted">Pago ${fmt(installment.paidAt || today())}</span><button type="button" class="small warning-button" onclick="undoPayment('${esc(sale.id)}','${esc(installment.id)}')">Desfazer recebimento</button>` : `<button class="small" onclick="showPix('${esc(sale.id)}','${esc(installment.id)}')">PIX</button><button class="small green" onclick="pay('${esc(sale.id)}','${esc(installment.id)}')">Recebido</button>`}</div></div>`;
+      html += `<div class="installment"><div class="row"><span>${index + 1}/${sale.installments.length} • ${money(installment.value)}</span><span>${fmt(installment.due)}</span></div><div class="row">${st(installment)} ${installment.paid ? `<span class="muted">Pago ${fmt(installment.paidAt || today())}</span><button type="button" class="small warning-button" data-action="undo-payment" data-sale-id="${esc(sale.id)}" data-installment-id="${esc(installment.id)}">Desfazer recebimento</button>` : `<button type="button" class="small" data-action="show-pix" data-sale-id="${esc(sale.id)}" data-installment-id="${esc(installment.id)}">PIX</button><button type="button" class="small green" data-action="pay" data-sale-id="${esc(sale.id)}" data-installment-id="${esc(installment.id)}">Recebido</button>`}</div></div>`;
     });
   });
   $('view').innerHTML = html;
