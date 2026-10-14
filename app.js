@@ -16,6 +16,7 @@ let changeRevision = 0;
 let savedRevision = 0;
 let writeFailed = false;
 let active = null;
+let selectedSaleClientId = null;
 let selectedSaleProductId = null;
 
 function nextProductCode(products = db.products) {
@@ -287,7 +288,7 @@ document.addEventListener('click', event => {
     case 'pay': window.pay(saleId, installmentId); break;
     case 'undo-payment': window.undoPayment(saleId, installmentId); break;
     case 'cancel-sale': window.cancelSale(saleId); break;
-    case 'new-sale': window.newSale(); break;
+    case 'new-sale': window.newSale(id); break;
     case 'toggle-client-block': window.toggleClientSalesBlock(id); break;
     case 'delete-client': window.deleteClient(id); break;
     case 'archive-product': window.archiveProduct(id); break;
@@ -470,7 +471,7 @@ window.openClient = id => {
   let html = `<h2>${esc(active.name)}</h2><p class="muted">${esc(active.phone || 'Sem WhatsApp')}</p>`;
   if (blocked) html += `<p class="client-blocked-notice"><b>VENDAS BLOQUEADAS</b><br>Motivo: ${esc(active.salesBlockReason || 'Atraso no pagamento')} • Desde ${esc(active.salesBlockedAt || 'data não registrada')}.</p>`;
   if (overdueTotal > 0) html += `<p class="late-notice">Parcelas vencidas em aberto: <b>${money(overdueTotal)}</b>.</p>`;
-  html += `<div class="client-actions"><button type="button" class="primary" data-action="new-sale" ${blocked ? 'disabled' : ''}>${blocked ? 'Vendas bloqueadas' : '+ Nova venda fiada'}</button><button type="button" class="${blocked ? 'green' : 'warning-button'}" data-action="toggle-client-block" data-id="${esc(active.id)}">${blocked ? 'Desbloquear vendas' : 'Bloquear novas vendas por atraso'}</button><button type="button" class="small danger-button" data-action="delete-client" data-id="${esc(active.id)}">Excluir cliente</button></div>`;
+  html += `<div class="client-actions"><button type="button" class="primary" data-action="new-sale" data-id="${esc(active.id)}" ${blocked ? 'disabled' : ''}>${blocked ? 'Vendas bloqueadas' : '+ Nova venda fiada'}</button><button type="button" class="${blocked ? 'green' : 'warning-button'}" data-action="toggle-client-block" data-id="${esc(active.id)}">${blocked ? 'Desbloquear vendas' : 'Bloquear novas vendas por atraso'}</button><button type="button" class="small danger-button" data-action="delete-client" data-id="${esc(active.id)}">Excluir cliente</button></div>`;
   if (!sales.length) html += '<div class="empty">Este cliente ainda não tem vendas ativas.</div>';
   sales.forEach(sale => {
     const product = db.products.find(item => item.id === sale.productId);
@@ -483,19 +484,33 @@ window.openClient = id => {
   $('viewDlg').showModal();
 };
 
-window.newSale = () => {
-  if (!active) return;
-  if (active.salesBlocked === true) {
-    alert('As novas vendas para este cliente estão bloqueadas por atraso no pagamento. Desbloqueie o cliente primeiro se decidir autorizar uma nova venda.');
+window.newSale = clientId => {
+  // Vincula a venda explicitamente ao cliente escolhido, sem depender de uma referência
+  // global que possa estar desatualizada em outra interação da interface.
+  const targetId = clientId || active?.id;
+  const currentClient = db.clients.find(client => client.id === targetId);
+  if (!currentClient) {
+    alert('Selecione um cliente válido antes de iniciar uma venda.');
     return;
   }
+  if (currentClient.salesBlocked === true) {
+    alert(`Não é possível iniciar uma nova venda fiada: ${currentClient.name} está com as vendas bloqueadas por atraso no pagamento. Desbloqueie o cliente primeiro, se decidir autorizar uma nova venda.`);
+    if ($('saleDlg').open) $('saleDlg').close();
+    openClient(currentClient.id);
+    return;
+  }
+  active = currentClient;
+  selectedSaleClientId = currentClient.id;
   $('viewDlg').close();
   $('saleForm').reset();
+  // reset() também apaga o campo oculto, então o vínculo é definido depois do reset.
+  selectedSaleClientId = currentClient.id;
+  $('saleClientId').value = currentClient.id;
   selectedSaleProductId = null;
   $('sProductSearch').value = '';
   $('sQty').value = '1';
   $('stockHint').textContent = 'Pesquise pelo nome ou código e escolha um produto para dar baixa no estoque automaticamente.';
-  $('saleWho').textContent = 'Cliente: ' + active.name;
+  $('saleWho').textContent = 'Cliente: ' + currentClient.name;
   $('sDate').value = today();
   renderProductSearch();
   $('saleDlg').showModal();
@@ -503,11 +518,20 @@ window.newSale = () => {
 
 $('saleForm').onsubmit = event => {
   event.preventDefault();
-  const currentClient = active ? db.clients.find(client => client.id === active.id) : null;
-  if (!currentClient) { alert('Selecione um cliente válido antes de registrar a venda.'); return; }
-  if (currentClient.salesBlocked === true) {
-    alert('Esta conta de cliente está bloqueada para novas vendas. Desbloqueie o cliente antes de continuar.');
+  // Última barreira: valida o cliente vinculado ao formulário no instante de salvar.
+  // Mesmo se a janela estava aberta antes do bloqueio, a venda precisa ser recusada.
+  const submittedClientId = $('saleClientId').value || selectedSaleClientId;
+  const currentClient = db.clients.find(client => client.id === submittedClientId);
+  if (!currentClient) {
+    alert('Selecione um cliente válido antes de registrar a venda. Feche o formulário e abra a venda novamente pelo cadastro correto.');
     $('saleDlg').close();
+    return;
+  }
+  if (currentClient.salesBlocked === true) {
+    alert(`Venda não registrada: ${currentClient.name} está com as vendas bloqueadas por atraso no pagamento. As cobranças e os pagamentos anteriores continuam disponíveis.`);
+    $('saleDlg').close();
+    selectedSaleClientId = null;
+    $('saleClientId').value = '';
     openClient(currentClient.id);
     return;
   }
@@ -553,11 +577,15 @@ $('saleForm').onsubmit = event => {
   save();
   $('saleDlg').close();
   $('saleForm').reset();
+  selectedSaleClientId = null;
+  $('saleClientId').value = '';
   openClient(currentClient.id);
 };
 
 $('cancelSale').onclick = () => {
   $('saleForm').reset();
+  selectedSaleClientId = null;
+  $('saleClientId').value = '';
   selectedSaleProductId = null;
   $('saleDlg').close();
   if (active && db.clients.some(client => client.id === active.id)) openClient(active.id);
