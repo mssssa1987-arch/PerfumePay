@@ -4,7 +4,7 @@ const DEFAULT_DB = {
   clients: [],
   sales: [],
   products: [],
-  settings: { store: 'Perfumaria', pixKey: '', city: '' }
+  settings: { store: 'Perfumaria', pixKey: '', pixName: '', city: '' }
 };
 const $ = id => document.getElementById(id);
 let firebaseUser = null;
@@ -273,7 +273,7 @@ function renderReports() {
 
 function chargeHTML(installment) {
   const client = db.clients.find(c => c.id === installment.cid);
-  return `<div class="charge"><div><b>${esc(client?.name || 'Cliente')} — ${money(installment.value)}</b><div class="muted">${esc(installment.desc)} • ${fmt(installment.due)} ${st(installment)}</div></div><div><button type="button" class="small" data-action="show-pix" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">PIX</button> <button type="button" class="small green" data-action="pay" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">Recebido</button></div></div>`;
+  return `<div class="charge"><div><b>${esc(client?.name || 'Cliente')} — ${money(installment.value)}</b><div class="muted">${esc(installment.desc)} • ${fmt(installment.due)} ${st(installment)}</div></div><div><button type="button" class="small" data-action="show-pix" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">PIX</button> <button type="button" class="small green whatsapp-button" data-action="send-pix-whatsapp" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">WhatsApp</button> <button type="button" class="small green" data-action="pay" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">Recebido</button></div></div>`;
 }
 
 // Delegação de eventos para botões dinâmicos. Valores vindos dos dados nunca entram em código inline.
@@ -285,6 +285,7 @@ document.addEventListener('click', event => {
     case 'open-client': window.openClient(id); break;
     case 'adjust-stock': window.adjustStock(id); break;
     case 'show-pix': window.showPix(saleId, installmentId); break;
+    case 'send-pix-whatsapp': window.sendPixWhatsApp(saleId, installmentId); break;
     case 'pay': window.pay(saleId, installmentId); break;
     case 'undo-payment': window.undoPayment(saleId, installmentId); break;
     case 'cancel-sale': window.cancelSale(saleId); break;
@@ -693,7 +694,7 @@ window.cancelSale = saleId => {
   alert('Venda cancelada. O saldo do cliente, o resumo financeiro e o estoque foram atualizados.');
 };
 
-// PIX Copia e Cola.
+// Pix estático Copia e Cola + QR Code gerado localmente no navegador.
 function crc(str) {
   let value = 0xffff;
   for (let index = 0; index < str.length; index++) {
@@ -703,25 +704,148 @@ function crc(str) {
   return value.toString(16).toUpperCase().padStart(4, '0');
 }
 function fld(id, value) { return id + String(value.length).padStart(2, '0') + value; }
+function pixAscii(value, maxLength) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9 .\-]/g, '').trim().slice(0, maxLength);
+}
 function pix(key, amount, name, city, tx) {
-  const merchant = fld('00', 'BR.GOV.BCB.PIX') + fld('01', key);
+  const pixKey = String(key || '').trim();
+  if (!pixKey || /[^\x20-\x7E]/.test(pixKey)) throw new Error('A chave Pix precisa estar preenchida e conter somente caracteres ASCII. Confira a chave em Configurações.');
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) throw new Error('O valor da cobrança Pix precisa ser maior que zero.');
+  const merchantName = pixAscii(name, 25);
+  const merchantCity = pixAscii(city, 15);
+  if (!merchantName || !merchantCity) throw new Error('Preencha o nome do titular da chave Pix e a cidade em Configurações.');
+  const merchant = fld('00', 'BR.GOV.BCB.PIX') + fld('01', pixKey);
   const m = fld('26', merchant);
-  const additional = fld('62', fld('05', tx.slice(0, 25)));
-  const body = fld('00', '01') + fld('01', '12') + m + fld('52', '0000') + fld('53', '986') + fld('54', amount.toFixed(2)) + fld('58', 'BR') + fld('59', name.slice(0, 25)) + fld('60', city.slice(0, 15)) + additional + '6304';
+  const txid = String(tx || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 25) || '***';
+  const additional = fld('62', fld('05', txid));
+  // QR estático BR Code: chave + valor fixo + txid. O campo 01 de iniciação
+  // não é incluído; 12 é reservado ao fluxo dinâmico baseado em URL.
+  const body = fld('00', '01') + m + fld('52', '0000') + fld('53', '986') + fld('54', Number(amount).toFixed(2)) + fld('58', 'BR') + fld('59', merchantName) + fld('60', merchantCity) + additional + '6304';
   return body + crc(body);
 }
-window.showPix = (saleId, installmentId) => {
+function pixQrSvg(payload) {
+  if (typeof window.PerfumePayQRCode !== 'function') throw new Error('O gerador de QR Code não foi carregado. Atualize a página e tente novamente.');
+  const qr = new window.PerfumePayQRCode(0, 0); // Correção de erros M
+  qr.addData(payload);
+  qr.make();
+  const n = qr.getModuleCount();
+  const quiet = 4;
+  const size = n + quiet * 2;
+  const paths = [];
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (qr.isDark(row, col)) paths.push(`M${col + quiet} ${row + quiet}h1v1h-1z`);
+    }
+  }
+  // SVG interno, criado a partir somente da matriz numérica do QR; payload não é interpolado no HTML.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 ${size} ${size}" role="img" aria-label="QR Code Pix para pagamento"><rect width="${size}" height="${size}" fill="#fff"/><path d="${paths.join('')}" fill="#111" shape-rendering="crispEdges"/></svg>`;
+}
+function downloadPixQr() {
+  const svg = $('pixQr')?.querySelector('svg');
+  if (!svg) { alert('O QR Code não está disponível. Gere a cobrança novamente.'); return; }
+  const svgBlob = new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 800; canvas.height = 800;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.imageSmoothingEnabled = false;
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => {
+      URL.revokeObjectURL(svgUrl);
+      if (!blob) { alert('Não foi possível criar o arquivo PNG. Use o Pix Copia e Cola.'); return; }
+      const pngUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = pngUrl; link.download = 'PerfumePay-Pix-QR.png';
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+    }, 'image/png');
+  };
+  image.onerror = () => { URL.revokeObjectURL(svgUrl); alert('Não foi possível exportar o QR Code. Use o Pix Copia e Cola.'); };
+  image.src = svgUrl;
+}
+function getPixChargeDetails(saleId, installmentId) {
   const sale = db.sales.find(item => item.id === saleId && !item.cancelled);
   const installment = sale?.installments.find(item => item.id === installmentId);
-  if (!sale || !installment) return;
+  if (!sale || !installment || installment.paid) {
+    alert('Esta cobrança não está disponível para pagamento. Confira se a parcela já foi recebida ou se a venda foi cancelada.');
+    return null;
+  }
   const client = db.clients.find(item => item.id === sale.clientId);
+  if (!client) {
+    alert('Não foi possível encontrar o cadastro do cliente desta cobrança.');
+    return null;
+  }
   const key = db.settings.pixKey;
-  if (!key) { alert('Cadastre sua chave PIX em Configurações.'); return; }
-  const code = pix(key, installment.value, db.settings.store || 'PERFUMARIA', db.settings.city || 'BRASIL', installmentId.replaceAll('-', ''));
-  const message = `Olá, ${client?.name || 'cliente'}! Sua parcela de ${money(installment.value)} vence em ${fmt(installment.due)}. PIX Copia e Cola:\n${code}\nApós pagar, envie o comprovante.`;
-  $('pixView').innerHTML = `<h2>PIX da parcela</h2><p><b>${money(installment.value)}</b> • vencimento ${fmt(installment.due)}</p><p class="muted">PIX Copia e Cola</p><div class="copy">${esc(code)}</div><div class="actions"><button class="primary" id="copyPix">Copiar PIX</button><button id="copyCharge">Copiar cobrança</button></div><p class="muted">Para QR Code, esta tela pode ser ampliada em uma próxima versão com uma biblioteca de QR.</p>`;
-  $('copyPix').onclick = async () => { try { await navigator.clipboard.writeText(code); alert('PIX copiado!'); } catch (_) { alert('Não foi possível copiar automaticamente. Selecione e copie o código.'); } };
-  $('copyCharge').onclick = async () => { try { await navigator.clipboard.writeText(message); alert('Mensagem copiada!'); } catch (_) { alert('Não foi possível copiar automaticamente.'); } };
+  const pixName = db.settings.pixName || '';
+  const city = db.settings.city || '';
+  if (!key) { alert('Cadastre sua chave Pix em Configurações.'); return null; }
+  if (!pixName || !city || pixAscii(city, 15) === 'BRASIL') {
+    alert('Antes de gerar o QR Code, abra Configurações e preencha “Nome do titular da chave Pix” exatamente como aparece no banco e a cidade real do titular. Depois salve as configurações.');
+    return null;
+  }
+  let code;
+  try { code = pix(key, installment.value, pixName, city, installmentId); }
+  catch (error) { alert(error.message || 'Não foi possível gerar o Pix. Confira as configurações.'); return null; }
+  const due = new Date(`${installment.due}T12:00:00`);
+  const base = new Date(`${today()}T12:00:00`);
+  const daysUntilDue = Math.round((due.getTime() - base.getTime()) / 86400000);
+  let duePhrase;
+  if (daysUntilDue < 0) duePhrase = `venceu há ${Math.abs(daysUntilDue)} dia(s)`;
+  else if (daysUntilDue === 0) duePhrase = 'vence hoje';
+  else if (daysUntilDue === 1) duePhrase = 'vence amanhã';
+  else duePhrase = `vence em ${daysUntilDue} dias`;
+  const message = `Olá, ${client.name || 'tudo bem'}! Passando para lembrar que sua parcela referente a “${sale.desc || 'sua compra'}”, no valor de ${money(installment.value)}, ${duePhrase} (${fmt(installment.due)}).\n\nPix Copia e Cola:\n${code}\n\nPara pagar, copie o código completo e cole no aplicativo do seu banco. Confira o nome do recebedor e o valor antes de confirmar. Após realizar o pagamento, pode me enviar o comprovante. Obrigado!`;
+  return { sale, installment, client, code, message };
+}
+
+function normalizeBrazilWhatsApp(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return '';
+}
+
+function openWhatsAppWithMessage(phone, message) {
+  const normalizedPhone = normalizeBrazilWhatsApp(phone);
+  if (!normalizedPhone) {
+    alert('Este cliente não tem um número de WhatsApp válido. Cadastre o telefone com DDD (10 ou 11 dígitos) para enviar a cobrança.');
+    return false;
+  }
+  const url = `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+  // Abre o WhatsApp numa nova aba com a mensagem preenchida. O usuário ainda precisa
+  // revisar e tocar em Enviar; uma página estática não pode enviar mensagens em segundo plano.
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return true;
+}
+
+window.sendPixWhatsApp = (saleId, installmentId) => {
+  const details = getPixChargeDetails(saleId, installmentId);
+  if (!details) return;
+  openWhatsAppWithMessage(details.client.phone, details.message);
+};
+
+window.showPix = (saleId, installmentId) => {
+  const details = getPixChargeDetails(saleId, installmentId);
+  if (!details) return;
+  let qrMarkup;
+  try { qrMarkup = pixQrSvg(details.code); }
+  catch (error) { console.error(error); alert(error.message || 'Não foi possível gerar o QR Code.'); return; }
+  $('pixView').innerHTML = `<h2>PIX da parcela</h2><p><b>${money(details.installment.value)}</b> • vencimento ${fmt(details.installment.due)}</p><div class="pix-qr-card"><div class="pix-qr-frame" id="pixQr">${qrMarkup}</div><b>Escaneie para pagar com Pix</b><p class="muted">Abra o aplicativo do banco do pagador e leia o QR Code. Confira o nome do recebedor e o valor antes de confirmar.</p><button class="secondary" id="downloadPixQr" type="button">Baixar QR Code (PNG)</button></div><p class="muted">Ou use o Pix Copia e Cola</p><div class="copy">${esc(details.code)}</div><div class="actions pix-actions"><button class="primary" id="copyPix" type="button">Copiar Pix</button><button id="copyCharge" type="button">Copiar cobrança</button><button class="green whatsapp-button" id="sendPixWhatsApp" type="button">Enviar cobrança pelo WhatsApp</button></div><p class="pix-warning">O QR Code é gerado localmente e não confirma o pagamento automaticamente. Para mandar a imagem pelo WhatsApp, baixe o PNG e anexe manualmente. Confira o recebimento no seu banco antes de marcar a parcela como paga.</p>`;
+  $('copyPix').onclick = async () => { try { await navigator.clipboard.writeText(details.code); alert('Pix Copia e Cola copiado!'); } catch (_) { alert('Não foi possível copiar automaticamente. Selecione e copie o código.'); } };
+  $('copyCharge').onclick = async () => { try { await navigator.clipboard.writeText(details.message); alert('Cobrança copiada! Você pode enviá-la por WhatsApp.'); } catch (_) { alert('Não foi possível copiar automaticamente.'); } };
+  $('downloadPixQr').onclick = downloadPixQr;
+  $('sendPixWhatsApp').onclick = () => openWhatsAppWithMessage(details.client.phone, details.message);
   $('pixDlg').showModal();
 };
 
@@ -729,7 +853,8 @@ window.showPix = (saleId, installmentId) => {
 $('saveSettings').onclick = () => {
   db.settings.store = $('storeName').value.trim() || 'Perfumaria';
   db.settings.pixKey = $('pixKey').value.trim();
-  db.settings.city = $('pixCity').value.trim() || 'BRASIL';
+  db.settings.pixName = $('pixName').value.trim();
+  db.settings.city = $('pixCity').value.trim();
   save();
   alert('Configurações salvas.');
 };
@@ -839,6 +964,7 @@ ATENÇÃO: isso substituirá TODOS os dados atuais desta conta pela cópia escol
     writeFailed = false;
     $('storeName').value = db.settings.store || 'Perfumaria';
     $('pixKey').value = db.settings.pixKey || '';
+    $('pixName').value = db.settings.pixName || '';
     $('pixCity').value = db.settings.city || '';
     render();
     setSync('Cópia restaurada e sincronizada na nuvem ✓');
@@ -854,6 +980,7 @@ ATENÇÃO: isso substituirá TODOS os dados atuais desta conta pela cópia escol
 
 $('storeName').value = db.settings.store;
 $('pixKey').value = db.settings.pixKey;
+$('pixName').value = db.settings.pixName || '';
 $('pixCity').value = db.settings.city;
 render();
 
@@ -894,6 +1021,7 @@ render();
     writeFailed = false;
     $('storeName').value = '';
     $('pixKey').value = '';
+    $('pixName').value = '';
     $('pixCity').value = '';
     render();
   }
@@ -910,7 +1038,7 @@ render();
       (Array.isArray(data.clients) && data.clients.length) ||
       (Array.isArray(data.sales) && data.sales.length) ||
       (Array.isArray(data.products) && data.products.length) ||
-      (data.settings && (data.settings.pixKey || data.settings.store && data.settings.store !== 'Perfumaria' || data.settings.city))
+      (data.settings && (data.settings.pixKey || data.settings.pixName || data.settings.store && data.settings.store !== 'Perfumaria' || data.settings.city))
     ));
   }
 
@@ -989,6 +1117,7 @@ render();
       $('appShell').classList.remove('hidden');
       $('storeName').value = db.settings.store || 'Perfumaria';
       $('pixKey').value = db.settings.pixKey || '';
+      $('pixName').value = db.settings.pixName || '';
       $('pixCity').value = db.settings.city || '';
       render();
       setSync('Sincronizado na nuvem ✓');

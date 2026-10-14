@@ -1,0 +1,6 @@
+QRCode.js browser bundle
+
+Copyright (c) 2009 Kazuhiko Arase
+Licensed under the MIT license.
+Source implementation distributed in the qrcode-terminal vendor/QRCode directory.
+QR Code is a registered trademark of DENSO WAVE INCORPORATED.
