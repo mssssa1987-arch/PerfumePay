@@ -22,3 +22,6 @@ dialog{color:var(--text);border:1px solid var(--border-strong);border-radius:19p
 .whatsapp-button:hover{border-color:#9de2b8;filter:brightness(1.1)}
 .pix-actions{display:flex;justify-content:stretch;gap:8px;flex-wrap:wrap}
 .pix-actions button{flex:1 1 150px;min-width:0}
+
+/* Identificador visual de versão para ajudar a confirmar publicação. */
+.build-marker{font-size:10px;color:#cbb18b;opacity:.8;letter-spacing:.02em}

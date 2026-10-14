@@ -8,7 +8,7 @@
   <title>PerfumePay | Gestão para Perfumarias</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=pp-pix-whatsapp-11">
 </head>
 <body>
 <section id="cloudLogin" class="cloud-login">
@@ -78,7 +78,7 @@
     <section id="settings" class="page hidden"><div class="panel"><div class="panel-heading"><div><div class="eyebrow">PREFERÊNCIAS</div><h2>Configurações</h2><p class="muted">Dados utilizados para identificar sua loja e gerar cobranças PIX.</p></div></div><label>Nome da loja<input id="storeName"></label><label>Chave Pix<input id="pixKey" autocomplete="off" placeholder="Sua chave Pix"></label><label>Nome do titular da chave Pix<input id="pixName" autocomplete="name" placeholder="Como aparece no banco"></label><label>Cidade do titular<input id="pixCity" placeholder="Sua cidade"></label><button class="primary" id="saveSettings" type="button">Salvar configurações</button><p class="muted">Para gerar o QR Code, informe o nome do titular exatamente como aparece no banco e a cidade. O QR Code usa sua chave Pix e o valor da parcela; o pagamento não é confirmado automaticamente pelo aplicativo.</p></div><div class="panel backup-panel"><div class="panel-heading"><div><div class="eyebrow">PROTEÇÃO DOS DADOS</div><h2>Cópia de segurança</h2></div><span class="panel-emblem" aria-hidden="true">◇</span></div><p>Baixe uma cópia dos clientes, produtos, vendas, estoque e configurações desta conta. Faça isso regularmente.</p><div class="backup-actions"><button class="primary" id="exportBackup" type="button">Baixar cópia de segurança</button><button class="secondary" id="chooseBackup" type="button">Restaurar cópia de segurança</button><input id="backupFile" type="file" accept="application/json,.json" hidden></div><p class="muted">O arquivo contém dados pessoais e a chave Pix e não é criptografado. Guarde-o em local privado. Não o envie ao GitHub, nem o compartilhe por WhatsApp ou e-mail. A restauração substitui os dados atuais desta conta pelos dados da cópia.</p></div></section>
   </main>
 
-  <footer class="app-footer"><img src="brand-mark.svg" alt="" width="24" height="24"><span>PerfumePay</span><i></i><span>Gestão para perfumarias</span></footer>
+  <footer class="app-footer"><img src="brand-mark.svg" alt="" width="24" height="24"><span>PerfumePay</span><i></i><span>Gestão para perfumarias</span><span class="build-marker">Pix + WhatsApp v11</span></footer>
 
   <dialog id="clientDlg"><form method="dialog" id="clientForm"><div class="dialog-heading"><div class="eyebrow">NOVO CADASTRO</div><h2>Cadastro de cliente</h2></div><label>Nome<input id="cName" required></label><label>WhatsApp<input id="cPhone"></label><label>Observações<textarea id="cNotes"></textarea></label><div class="actions"><button id="cancelClient" class="secondary" type="button">Cancelar</button><button class="primary" type="submit">Salvar cliente</button></div></form></dialog>
   <dialog id="productDlg"><form method="dialog" id="productForm"><div class="dialog-heading"><div class="eyebrow">CATÁLOGO</div><h2>Novo produto</h2></div><label>Nome<input id="pName" required></label><label>Código do produto<input id="pCode" autocomplete="off" placeholder="Gerado automaticamente se ficar vazio"></label><label>Preço de custo<input id="pCost" type="number" step=".01" min="0"></label><label>Preço de venda<input id="pPrice" type="number" step=".01" min="0" required></label><label>Estoque<input id="pStock" type="number" min="0" value="0"></label><div class="actions"><button id="cancelProduct" class="secondary" type="button">Cancelar</button><button class="primary" type="submit">Salvar produto</button></div></form></dialog>
@@ -89,8 +89,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="qrcode.js"></script>
-<script src="app.js"></script>
-<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js'));}</script>
+<script src="qrcode.js?v=pp-pix-whatsapp-11"></script>
+<script src="app.js?v=pp-pix-whatsapp-11"></script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=pp-pix-whatsapp-11',{updateViaCache:'none'}));}</script>
 </body>
 </html>
