@@ -1,0 +1,41 @@
+PERFUMEPAY — PIN NAS CONFIGURAÇÕES + CONTAS A PAGAR
+
+ARQUIVOS INCLUÍDOS
+- app.js
+- index.html
+- style.css
+- sw.js
+
+COMO ATUALIZAR PELO GITHUB
+1. Baixe e extraia PerfumePay_PIN_Contas_a_Pagar.zip.
+2. Abra o repositório do PerfumePay no GitHub.
+3. Abra a mesma pasta da raiz do site publicado, onde já está o index.html atual. Não crie outra pasta www.
+4. Substitua somente app.js, index.html, style.css e sw.js pelos quatro arquivos do ZIP.
+5. Não substitua firebase-config.js, qrcode.js, manifest.json, os ícones ou brand-mark.svg. Não mude as regras do Firebase.
+6. Faça Commit changes e aguarde o GitHub Pages publicar.
+7. Abra https://mssssa1987-arch.github.io/PerfumePay/ novamente. Se ainda aparecer a versão anterior, feche as abas do app e reabra o endereço; se necessário faça uma atualização forçada (Ctrl+F5 no computador).
+8. Confira no rodapé o marcador “PIN + Contas a pagar v12”.
+
+PRIMEIRO ACESSO A CONFIGURAÇÕES
+- Ao abrir Configurações pela primeira vez, o app solicitará a criação de um PIN numérico de 6 a 8 dígitos.
+- Guarde o PIN em local seguro. Ele é solicitado ao entrar nas Configurações, a aba é bloqueada ao sair e também após cinco minutos de inatividade.
+- Use “Alterar PIN” dentro de Configurações para mudá-lo.
+- “Esqueci o PIN” pede a senha da conta Firebase e conexão com a internet. A redefinição por senha funciona para contas de e-mail/senha; outros provedores de autenticação podem exigir recuperação diferente.
+
+IMPORTANTE SOBRE SEGURANÇA
+O PIN protege a abertura da área de Configurações dentro da interface. Ele não substitui o login do Firebase nem as regras de segurança do banco e não é uma proteção absoluta contra alguém com acesso técnico ao navegador, arquivos do site ou à sessão autenticada. Use uma senha forte na conta, encerre a sessão em dispositivos compartilhados e não altere as regras do Firebase sem revisar.
+
+NOVA ABA “CONTAS A PAGAR”
+- Cadastre lembretes internos com fornecedor, descrição/referência, valor total, primeiro vencimento, forma de pagamento, parcelas e observações.
+- O sistema divide o valor em parcelas mensais, ajustando centavos para que a soma seja igual ao total informado.
+- Cada parcela pode ser marcada como paga e desmarcada se for um erro. Também é possível quitar as parcelas restantes.
+- Lembretes com parcelas pagas não podem ser apagados, para preservar o histórico. Lembretes sem pagamentos podem ser excluídos.
+- Esses registros são lembretes de gestão; não emitem nota fiscal, não fazem pagamentos e não substituem contabilidade/fiscal.
+- Os lembretes são salvos dentro dos dados da conta autenticada no Firestore. Mantenha backups regulares. Backups feitos antes desta atualização não contêm os lembretes recém-criados; gere uma nova cópia após atualizar.
+
+TESTE RECOMENDADO APÓS PUBLICAR
+1. Abra Configurações e crie o PIN.
+2. Saia de Configurações; entre novamente e confirme que o PIN é solicitado.
+3. Abra Contas a pagar, crie um lembrete fictício de R$ 100,00 em 3 parcelas, confira as parcelas e marque uma como paga.
+4. Atualize a página e verifique se o lembrete e o estado da parcela continuam salvos.
+5. Faça esses testes somente com dados fictícios até confirmar a atualização no Firebase real.

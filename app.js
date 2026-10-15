@@ -4,6 +4,7 @@ const DEFAULT_DB = {
   clients: [],
   sales: [],
   products: [],
+  bills: [],
   settings: { store: 'Perfumaria', pixKey: '', pixName: '', city: '' }
 };
 const $ = id => document.getElementById(id);
@@ -18,6 +19,12 @@ let writeFailed = false;
 let active = null;
 let selectedSaleClientId = null;
 let selectedSaleProductId = null;
+let currentTab = 'home';
+let settingsUnlocked = false;
+let settingsAutoLockTimer = null;
+let pinMode = 'unlock';
+let pinWrongAttempts = 0;
+let pinBlockedUntil = 0;
 
 function nextProductCode(products = db.products) {
   const used = new Set((products || []).map(p => String(p.code || '').trim().toLowerCase()).filter(Boolean));
@@ -35,9 +42,10 @@ function normalizeDatabase(input) {
     clients: Array.isArray(data.clients) ? data.clients : [],
     sales: Array.isArray(data.sales) ? data.sales : [],
     products: Array.isArray(data.products) ? data.products : [],
+    bills: Array.isArray(data.bills) ? data.bills : [],
     settings: { ...DEFAULT_DB.settings, ...(data.settings || {}) }
   };
-  if (!Array.isArray(data.clients) || !Array.isArray(data.sales) || !Array.isArray(data.products)) changed = true;
+  if (!Array.isArray(data.clients) || !Array.isArray(data.sales) || !Array.isArray(data.products) || !Array.isArray(data.bills)) changed = true;
   const used = new Set(normalized.products.map(p => String(p.code || '').trim().toLowerCase()).filter(Boolean));
   let candidate = 1001;
   normalized.products.forEach(product => {
@@ -206,6 +214,7 @@ function render() {
     : '';
   $('productList').innerHTML = currentMarkup + discontinuedMarkup;
   renderReports();
+  renderPayables();
 }
 
 function renderReports() {
@@ -276,11 +285,148 @@ function chargeHTML(installment) {
   return `<div class="charge"><div><b>${esc(client?.name || 'Cliente')} — ${money(installment.value)}</b><div class="muted">${esc(installment.desc)} • ${fmt(installment.due)} ${st(installment)}</div></div><div><button type="button" class="small" data-action="show-pix" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">PIX</button> <button type="button" class="small green whatsapp-button" data-action="send-pix-whatsapp" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">WhatsApp</button> <button type="button" class="small green" data-action="pay" data-sale-id="${esc(installment.sid)}" data-installment-id="${esc(installment.id)}">Recebido</button></div></div>`;
 }
 
+// Contas a pagar: lembretes internos, separados das vendas e dos recebimentos de clientes.
+function safeBillInstallments(bill) { return Array.isArray(bill.installments) ? bill.installments : []; }
+function payableStatus(bill) {
+  const installments = safeBillInstallments(bill);
+  if (installments.length && installments.every(item => item.paid)) return '<span class="badge ok">Quitada</span>';
+  if (installments.some(item => item.paid)) return '<span class="badge">Parcialmente paga</span>';
+  if (installments.some(item => !item.paid && String(item.due || '') < today())) return '<span class="badge danger">Vencida</span>';
+  return '<span class="badge">Pendente</span>';
+}
+function renderPayables() {
+  if (!$('payableList')) return;
+  const bills = Array.isArray(db.bills) ? db.bills : [];
+  const installments = bills.flatMap(bill => safeBillInstallments(bill).map(item => ({ ...item, billId: bill.id })));
+  const open = installments.filter(item => !item.paid);
+  const overdue = open.filter(item => String(item.due || '') < today());
+  const thisMonth = today().slice(0, 7);
+  const paidThisMonth = installments.filter(item => item.paid && String(item.paidAt || '').slice(0, 7) === thisMonth)
+    .reduce((sum, item) => sum + Number(item.value || 0), 0);
+  $('payableOpenTotal').textContent = money(open.reduce((sum, item) => sum + Number(item.value || 0), 0));
+  $('payableOverdueTotal').textContent = money(overdue.reduce((sum, item) => sum + Number(item.value || 0), 0));
+  $('payablePaidMonth').textContent = money(paidThisMonth);
+  $('payableOpenCount').textContent = String(bills.filter(bill => safeBillInstallments(bill).some(item => !item.paid)).length);
+
+  const nextDue = bill => safeBillInstallments(bill).filter(item => !item.paid).map(item => String(item.due || '9999-12-31')).sort()[0] || '9999-12-31';
+  const sorted = [...bills].sort((a, b) => nextDue(a).localeCompare(nextDue(b)) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  $('payableList').innerHTML = sorted.map(bill => {
+    const parts = safeBillInstallments(bill);
+    const paidSum = parts.filter(item => item.paid).reduce((sum, item) => sum + Number(item.value || 0), 0);
+    const unpaidParts = parts.filter(item => !item.paid);
+    const canDelete = !parts.some(item => item.paid);
+    const partMarkup = parts.map(item => {
+      const due = item.due ? fmt(item.due) : 'Sem vencimento';
+      const paymentStatus = item.paid
+        ? `<span class="badge ok">Paga${item.paidAt ? ' em ' + esc(fmt(item.paidAt)) : ''}</span>`
+        : (String(item.due || '') < today() ? '<span class="badge danger">Vencida</span>' : '<span class="badge">Pendente</span>');
+      const action = item.paid
+        ? `<button type="button" class="small warning-button" data-action="undo-payable-payment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Desfazer baixa</button>`
+        : `<button type="button" class="small green" data-action="pay-bill-installment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Dar baixa</button>`;
+      return `<div class="payable-installment"><div><b>Parcela ${Number(item.number || 1)}/${parts.length} · ${money(item.value)}</b><small>Vencimento: ${due}</small><div class="payable-status-line">${paymentStatus}</div></div><div class="payable-row-action">${action}</div></div>`;
+    }).join('');
+    return `<article class="payable-item"><div class="payable-item-head"><div class="payable-title"><h3>${esc(bill.supplier || 'Fornecedor')}</h3><p>${esc(bill.description || 'Lembrete de pagamento')}</p><small>${esc(bill.paymentMethod || 'Forma de pagamento não informada')} · Criado em ${bill.createdAt ? esc(fmt(bill.createdAt)) : 'data não registrada'}</small></div><div class="payable-total"><b>${money(bill.totalAmount)}</b>${payableStatus(bill)}</div></div><div class="payable-progress"><span>Baixado: ${money(paidSum)} de ${money(bill.totalAmount)}</span><span>${parts.filter(item => item.paid).length}/${parts.length} parcelas</span></div>${bill.notes ? `<p class="payable-notes">${esc(bill.notes)}</p>` : ''}<div class="payable-installments-list">${partMarkup || '<div class="empty">Este lembrete ainda não tem parcelas.</div>'}</div><div class="payable-footer">${unpaidParts.length ? `<button type="button" class="small primary" data-action="settle-payable" data-bill-id="${esc(bill.id)}">Quitar todas as parcelas</button>` : ''}${canDelete ? `<button type="button" class="small danger-button" data-action="delete-payable" data-bill-id="${esc(bill.id)}">Excluir lembrete</button>` : '<small class="muted">O histórico permanece porque já há baixa registrada.</small>'}</div></article>`;
+  }).join('') || '<div class="empty">Nenhum lembrete cadastrado. Toque em “Novo lembrete” para registrar uma conta a pagar.</div>';
+}
+
+function addMonthsClamped(dateString, months) {
+  const parts = String(dateString || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(n => !Number.isFinite(n))) return dateString;
+  const [year, month, day] = parts;
+  const first = new Date(year, month - 1 + months, 1, 12, 0, 0);
+  const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0, 12, 0, 0).getDate();
+  const finalDay = Math.min(day, lastDay);
+  return `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}-${String(finalDay).padStart(2, '0')}`;
+}
+
+$('newPayable').onclick = () => {
+  $('payableForm').reset();
+  $('payDue').value = today();
+  $('payInstallmentCount').value = '1';
+  $('payableDlg').showModal();
+};
+$('cancelPayable').onclick = () => { $('payableForm').reset(); $('payableDlg').close(); };
+$('payableForm').onsubmit = event => {
+  event.preventDefault();
+  const supplier = $('paySupplier').value.trim();
+  const description = $('payDescription').value.trim();
+  const amount = Number($('payAmount').value);
+  const firstDue = $('payDue').value;
+  const count = Number($('payInstallmentCount').value);
+  if (!supplier) { $('paySupplier').focus(); return; }
+  if (!Number.isFinite(amount) || amount <= 0) { alert('Informe um valor total maior que zero.'); $('payAmount').focus(); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDue)) { alert('Informe uma data de vencimento válida.'); $('payDue').focus(); return; }
+  if (!Number.isInteger(count) || count < 1 || count > 60) { alert('A quantidade de parcelas deve ser de 1 a 60.'); $('payInstallmentCount').focus(); return; }
+  const totalCents = Math.round(amount * 100);
+  if (count > totalCents) { alert('Cada parcela precisa ter pelo menos R$ 0,01. Reduza a quantidade de parcelas ou aumente o valor total.'); $('payInstallmentCount').focus(); return; }
+  const baseCents = Math.floor(totalCents / count);
+  const remainder = totalCents - baseCents * count;
+  const bill = {
+    id: crypto.randomUUID(), supplier, description, totalAmount: totalCents / 100,
+    paymentMethod: $('payMethod').value, notes: $('payNotes').value.trim(), createdAt: today(),
+    installments: Array.from({ length: count }, (_, index) => ({
+      id: crypto.randomUUID(), number: index + 1,
+      value: (baseCents + (index < remainder ? 1 : 0)) / 100,
+      due: addMonthsClamped(firstDue, index), paid: false, paidAt: ''
+    }))
+  };
+  db.bills = Array.isArray(db.bills) ? db.bills : [];
+  db.bills.unshift(bill);
+  save();
+  $('payableDlg').close();
+  $('payableForm').reset();
+  renderPayables();
+};
+
+window.payBillInstallment = (billId, installmentId) => {
+  const bill = (db.bills || []).find(item => item.id === billId);
+  const installment = bill && safeBillInstallments(bill).find(item => item.id === installmentId);
+  if (!bill || !installment || installment.paid) return;
+  if (!confirm(`Registrar a baixa da parcela ${installment.number} de “${bill.supplier}”, no valor de ${money(installment.value)}? Confira antes de confirmar que o pagamento foi realizado.`)) return;
+  installment.paid = true;
+  installment.paidAt = today();
+  save();
+  renderPayables();
+};
+window.undoPayablePayment = (billId, installmentId) => {
+  const bill = (db.bills || []).find(item => item.id === billId);
+  const installment = bill && safeBillInstallments(bill).find(item => item.id === installmentId);
+  if (!bill || !installment || !installment.paid) return;
+  if (!confirm(`Desfazer a baixa da parcela ${installment.number} de “${bill.supplier}”? Ela voltará a constar como pendente.`)) return;
+  installment.paid = false;
+  installment.paidAt = '';
+  save();
+  renderPayables();
+};
+window.settlePayable = billId => {
+  const bill = (db.bills || []).find(item => item.id === billId);
+  if (!bill) return;
+  const pending = safeBillInstallments(bill).filter(item => !item.paid);
+  if (!pending.length) return;
+  const total = pending.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  if (!confirm(`Confirmar que todas as ${pending.length} parcela(s) restantes de “${bill.supplier}” foram pagas? Total da baixa: ${money(total)}.`)) return;
+  pending.forEach(item => { item.paid = true; item.paidAt = today(); });
+  save();
+  renderPayables();
+};
+window.deletePayable = billId => {
+  const bill = (db.bills || []).find(item => item.id === billId);
+  if (!bill) return;
+  if (safeBillInstallments(bill).some(item => item.paid)) {
+    alert('Este lembrete já possui uma baixa registrada. O histórico será preservado; não é possível excluí-lo.');
+    return;
+  }
+  if (!confirm(`Excluir o lembrete de pagamento de “${bill.supplier}”, no valor de ${money(bill.totalAmount)}? Esta ação não pode ser desfeita.`)) return;
+  db.bills = (db.bills || []).filter(item => item.id !== billId);
+  save();
+  renderPayables();
+};
+
 // Delegação de eventos para botões dinâmicos. Valores vindos dos dados nunca entram em código inline.
 document.addEventListener('click', event => {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
-  const { action, id, saleId, installmentId } = button.dataset;
+  const { action, id, saleId, installmentId, billId, billInstallmentId } = button.dataset;
   switch (action) {
     case 'open-client': window.openClient(id); break;
     case 'adjust-stock': window.adjustStock(id); break;
@@ -295,16 +441,199 @@ document.addEventListener('click', event => {
     case 'archive-product': window.archiveProduct(id); break;
     case 'restore-product': window.restoreProduct(id); break;
     case 'delete-product': window.deleteProduct(id); break;
+    case 'pay-bill-installment': window.payBillInstallment(billId, billInstallmentId); break;
+    case 'undo-payable-payment': window.undoPayablePayment(billId, billInstallmentId); break;
+    case 'settle-payable': window.settlePayable(billId); break;
+    case 'delete-payable': window.deletePayable(billId); break;
   }
 });
 
-// Navegação entre abas.
+// Navegação. Configurações é bloqueada ao sair e exige PIN a cada nova entrada.
+function showTab(tabName, options = {}) {
+  if (tabName === 'settings' && !settingsUnlocked && !options.skipLock) { openPinDialog(hasSettingsPin() ? 'unlock' : 'setup'); return; }
+  if (currentTab === 'settings' && tabName !== 'settings' && !options.skipLock) lockSettings(false);
+  currentTab = tabName;
+  document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item.dataset.t === tabName));
+  document.querySelectorAll('.page').forEach(page => page.classList.toggle('hidden', page.id !== tabName));
+  if (tabName === 'payables') renderPayables();
+  if (tabName === 'reports') renderReports();
+}
+function hasSettingsPin() { return !!(db.settings && db.settings.configPinSalt && db.settings.configPinHash); }
+function fillSettingsForm() {
+  $('storeName').value = db.settings.store || 'Perfumaria';
+  $('pixKey').value = db.settings.pixKey || '';
+  $('pixName').value = db.settings.pixName || '';
+  $('pixCity').value = db.settings.city || '';
+}
+function clearSettingsForm() {
+  ['storeName', 'pixKey', 'pixName', 'pixCity'].forEach(id => { if ($(id)) $(id).value = ''; });
+}
+function armSettingsAutoLock() {
+  clearTimeout(settingsAutoLockTimer);
+  settingsAutoLockTimer = setTimeout(() => {
+    if (currentTab === 'settings' && settingsUnlocked) {
+      lockSettings(false);
+      showTab('home', { skipLock: true });
+      alert('Configurações bloqueadas por inatividade. Digite seu PIN para acessá-las novamente.');
+    }
+  }, 5 * 60 * 1000);
+}
+function lockSettings(navigateHome = false) {
+  clearTimeout(settingsAutoLockTimer);
+  settingsAutoLockTimer = null;
+  settingsUnlocked = false;
+  clearSettingsForm();
+  if (navigateHome && currentTab === 'settings') showTab('home', { skipLock: true });
+}
+async function derivePinHash(pin, saltHex) {
+  if (!window.crypto || !crypto.subtle) throw new Error('Este navegador não oferece a proteção criptográfica necessária. Abra o PerfumePay pelo endereço HTTPS.');
+  const salt = new Uint8Array((saltHex.match(/.{1,2}/g) || []).map(pair => parseInt(pair, 16)));
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, material, 256);
+  return Array.from(new Uint8Array(bits), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function newPinSalt() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function openPinDialog(mode) {
+  if (mode === 'change') { clearTimeout(settingsAutoLockTimer); settingsAutoLockTimer = null; }
+  pinMode = mode;
+  $('pinForm').reset();
+  $('pinMessage').textContent = '';
+  $('pinExistingGroup').classList.toggle('hidden', mode === 'setup');
+  $('pinNewGroup').classList.toggle('hidden', mode === 'unlock');
+  $('pinConfirmGroup').classList.toggle('hidden', mode === 'unlock');
+  $('pinForgot').classList.toggle('hidden', mode !== 'unlock');
+  $('pinTitle').textContent = mode === 'setup' ? 'Criar PIN das configurações' : mode === 'change' ? 'Alterar PIN das configurações' : 'Desbloquear configurações';
+  $('pinIntro').textContent = mode === 'setup'
+    ? 'Crie um PIN numérico de 6 a 8 dígitos. Ele será solicitado sempre que você abrir Configurações.'
+    : mode === 'change'
+      ? 'Confirme o PIN atual e escolha um novo PIN numérico de 6 a 8 dígitos.'
+      : 'Digite seu PIN para liberar temporariamente esta área.';
+  $('pinSubmit').textContent = mode === 'setup' ? 'Criar PIN e liberar' : mode === 'change' ? 'Salvar novo PIN' : 'Liberar acesso';
+  $('pinDlg').showModal();
+  setTimeout(() => $(mode === 'setup' ? 'pinNew' : 'pinExisting').focus(), 50);
+}
+function enterSettingsUnlocked() {
+  settingsUnlocked = true;
+  fillSettingsForm();
+  showTab('settings', { skipLock: true });
+  armSettingsAutoLock();
+}
+async function savePinVerifier(newPin) {
+  const previousSalt = db.settings.configPinSalt;
+  const previousHash = db.settings.configPinHash;
+  const salt = newPinSalt();
+  const hash = await derivePinHash(newPin, salt);
+  db.settings.configPinSalt = salt;
+  db.settings.configPinHash = hash;
+  save();
+  const synced = await flushPendingSave();
+  if (!synced || writeFailed || savedRevision < changeRevision) {
+    if (previousSalt) db.settings.configPinSalt = previousSalt; else delete db.settings.configPinSalt;
+    if (previousHash) db.settings.configPinHash = previousHash; else delete db.settings.configPinHash;
+    $('pinMessage').textContent = 'Não consegui salvar o PIN na nuvem. Verifique a conexão e tente novamente.';
+    return false;
+  }
+  return true;
+}
 document.querySelectorAll('.tab').forEach(button => button.onclick = () => {
-  document.querySelectorAll('.tab').forEach(item => item.classList.remove('active'));
-  button.classList.add('active');
-  document.querySelectorAll('.page').forEach(page => page.classList.add('hidden'));
-  $(button.dataset.t).classList.remove('hidden');
+  const target = button.dataset.t;
+  if (target === 'settings') {
+    if (currentTab === 'settings' && settingsUnlocked) return;
+    if (!cloudReady || !firebaseUser) { alert('Entre na sua conta e aguarde a sincronização antes de abrir Configurações.'); return; }
+    openPinDialog(hasSettingsPin() ? 'unlock' : 'setup');
+    return;
+  }
+  showTab(target);
 });
+$('pinCancel').onclick = () => $('pinDlg').close();
+$('pinDlg').addEventListener('close', () => {
+  ['pinExisting', 'pinNew', 'pinConfirm'].forEach(id => { $(id).value = ''; });
+  $('pinMessage').textContent = '';
+  if (settingsUnlocked && currentTab === 'settings') armSettingsAutoLock();
+});
+$('pinForm').onsubmit = async event => {
+  event.preventDefault();
+  if (Date.now() < pinBlockedUntil) {
+    $('pinMessage').textContent = 'Muitas tentativas incorretas. Aguarde alguns segundos e tente novamente.';
+    return;
+  }
+  const currentPin = $('pinExisting').value;
+  const newPin = $('pinNew').value;
+  const confirmPin = $('pinConfirm').value;
+  const validPin = value => /^\d{6,8}$/.test(value);
+  const userPinIsCorrect = async value => {
+    const hash = await derivePinHash(value, db.settings.configPinSalt || '');
+    return hash === db.settings.configPinHash;
+  };
+  try {
+    if (pinMode === 'unlock') {
+      if (!validPin(currentPin)) { $('pinMessage').textContent = 'Digite um PIN de 6 a 8 dígitos.'; return; }
+      if (!(await userPinIsCorrect(currentPin))) {
+        pinWrongAttempts++;
+        if (pinWrongAttempts >= 5) { pinBlockedUntil = Date.now() + 30000; pinWrongAttempts = 0; }
+        $('pinExisting').value = '';
+        $('pinMessage').textContent = 'PIN incorreto. Confira os números e tente novamente.';
+        return;
+      }
+      pinWrongAttempts = 0;
+      $('pinDlg').close();
+      enterSettingsUnlocked();
+      return;
+    }
+    if (pinMode === 'change') {
+      if (!validPin(currentPin)) { $('pinMessage').textContent = 'Digite seu PIN atual de 6 a 8 dígitos.'; return; }
+      if (!(await userPinIsCorrect(currentPin))) { $('pinMessage').textContent = 'O PIN atual não confere.'; $('pinExisting').value = ''; return; }
+    }
+    if (!validPin(newPin)) { $('pinMessage').textContent = 'O novo PIN deve conter de 6 a 8 números.'; return; }
+    if (newPin !== confirmPin) { $('pinMessage').textContent = 'Os PINs não são iguais. Digite-os novamente.'; $('pinConfirm').value = ''; return; }
+    const saved = await savePinVerifier(newPin);
+    if (!saved) return;
+    $('pinDlg').close();
+    if (pinMode === 'setup') enterSettingsUnlocked();
+    else { settingsUnlocked = true; fillSettingsForm(); showTab('settings', { skipLock: true }); armSettingsAutoLock(); alert('PIN alterado com sucesso.'); }
+  } catch (error) {
+    console.error(error);
+    $('pinMessage').textContent = error && error.message ? error.message : 'Não foi possível validar o PIN neste navegador.';
+  }
+};
+$('pinForgot').onclick = async () => {
+  const user = window.firebase && firebase.auth().currentUser;
+  if (pinMode !== 'unlock' || !user || !user.email) {
+    $('pinMessage').textContent = 'Não foi possível verificar a conta para redefinir o PIN.';
+    return;
+  }
+  const password = prompt(`Para redefinir o PIN, confirme a senha da conta ${user.email}.`);
+  if (password === null || password === '') return;
+  const oldSalt = db.settings.configPinSalt;
+  const oldHash = db.settings.configPinHash;
+  try {
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+    await user.reauthenticateWithCredential(credential);
+    delete db.settings.configPinSalt;
+    delete db.settings.configPinHash;
+    save();
+    const synced = await flushPendingSave();
+    if (!synced || writeFailed || savedRevision < changeRevision) {
+      if (oldSalt) db.settings.configPinSalt = oldSalt;
+      if (oldHash) db.settings.configPinHash = oldHash;
+      $('pinMessage').textContent = 'Não foi possível sincronizar a redefinição. Verifique a conexão e tente novamente.';
+      return;
+    }
+    $('pinDlg').close();
+    openPinDialog('setup');
+  } catch (error) {
+    console.error(error);
+    $('pinMessage').textContent = 'A senha da conta não foi validada. O PIN não foi alterado.';
+  }
+};
+$('changePinBtn').onclick = () => {
+  if (!settingsUnlocked || currentTab !== 'settings') { alert('Desbloqueie Configurações com seu PIN primeiro.'); return; }
+  openPinDialog('change');
+};
+$('settings').addEventListener('input', armSettingsAutoLock);
+$('settings').addEventListener('click', armSettingsAutoLock);
 $('search').oninput = render;
 $('reportMonth').addEventListener('change', renderReports);
 $('closeViewDlg').onclick = () => $('viewDlg').close();
@@ -849,14 +1178,16 @@ window.showPix = (saleId, installmentId) => {
   $('pixDlg').showModal();
 };
 
-// Configurações.
+// Configurações. Esta checagem complementa o bloqueio visual por PIN; não substitui o Firebase Auth.
 $('saveSettings').onclick = () => {
+  if (!settingsUnlocked || currentTab !== 'settings') { alert('Digite o PIN para desbloquear Configurações antes de salvar.'); return; }
   db.settings.store = $('storeName').value.trim() || 'Perfumaria';
   db.settings.pixKey = $('pixKey').value.trim();
   db.settings.pixName = $('pixName').value.trim();
   db.settings.city = $('pixCity').value.trim();
   save();
   alert('Configurações salvas.');
+  armSettingsAutoLock();
 };
 
 // Backup manual: exporta somente depois de confirmar que as alterações pendentes foram sincronizadas.
@@ -962,10 +1293,7 @@ ATENÇÃO: isso substituirá TODOS os dados atuais desta conta pela cópia escol
     changeRevision++;
     savedRevision = changeRevision;
     writeFailed = false;
-    $('storeName').value = db.settings.store || 'Perfumaria';
-    $('pixKey').value = db.settings.pixKey || '';
-    $('pixName').value = db.settings.pixName || '';
-    $('pixCity').value = db.settings.city || '';
+    if (settingsUnlocked && currentTab === 'settings') fillSettingsForm(); else clearSettingsForm();
     render();
     setSync('Cópia restaurada e sincronizada na nuvem ✓');
     alert('Cópia restaurada com sucesso. Atualize a página e confirme que os dados aparecem corretamente.');
@@ -978,10 +1306,7 @@ ATENÇÃO: isso substituirá TODOS os dados atuais desta conta pela cópia escol
   }
 };
 
-$('storeName').value = db.settings.store;
-$('pixKey').value = db.settings.pixKey;
-$('pixName').value = db.settings.pixName || '';
-$('pixCity').value = db.settings.city;
+clearSettingsForm();
 render();
 
 // Firebase Auth + Firestore: os dados não são mantidos em localStorage.
@@ -1003,11 +1328,11 @@ render();
     saveTimer = null;
     // Fecha também os diálogos de detalhes/PIX antes de limpar a tela, para que não fique
     // informação antiga na camada modal do navegador depois de sair ou trocar de conta.
-    ['clientDlg', 'productDlg', 'saleDlg', 'viewDlg', 'pixDlg'].forEach(id => {
+    ['clientDlg', 'productDlg', 'saleDlg', 'viewDlg', 'pixDlg', 'payableDlg', 'pinDlg'].forEach(id => {
       const dialog = $(id);
       if (dialog && dialog.open) dialog.close();
     });
-    ['clientForm', 'productForm', 'saleForm'].forEach(id => { const form = $(id); if (form) form.reset(); });
+    ['clientForm', 'productForm', 'saleForm', 'payableForm', 'pinForm'].forEach(id => { const form = $(id); if (form) form.reset(); });
     $('view').innerHTML = '';
     $('pixView').innerHTML = '';
     $('search').value = '';
@@ -1019,10 +1344,9 @@ render();
     changeRevision = 0;
     savedRevision = 0;
     writeFailed = false;
-    $('storeName').value = '';
-    $('pixKey').value = '';
-    $('pixName').value = '';
-    $('pixCity').value = '';
+    lockSettings(false);
+    showTab('home', { skipLock: true });
+    clearSettingsForm();
     render();
   }
 
@@ -1115,10 +1439,8 @@ render();
       $('loginPassword').value = '';
       $('cloudLogin').classList.add('hidden');
       $('appShell').classList.remove('hidden');
-      $('storeName').value = db.settings.store || 'Perfumaria';
-      $('pixKey').value = db.settings.pixKey || '';
-      $('pixName').value = db.settings.pixName || '';
-      $('pixCity').value = db.settings.city || '';
+      lockSettings(false);
+      showTab('home', { skipLock: true });
       render();
       setSync('Sincronizado na nuvem ✓');
     } catch (error) {

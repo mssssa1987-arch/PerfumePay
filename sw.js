@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-brand-gold-v11-pix-whatsapp-fix';
+const CACHE = 'perfumaria-fiado-v12-pin-contas-pagar';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './qrcode.js',
   './firebase-config.js', './manifest.json', './brand-mark.svg',
