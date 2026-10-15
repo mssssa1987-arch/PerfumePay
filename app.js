@@ -25,6 +25,8 @@ let settingsAutoLockTimer = null;
 let pinMode = 'unlock';
 let pinWrongAttempts = 0;
 let pinBlockedUntil = 0;
+let editingPayableBillId = null;
+let editingPayableInstallmentId = null;
 
 function nextProductCode(products = db.products) {
   const used = new Set((products || []).map(p => String(p.code || '').trim().toLowerCase()).filter(Boolean));
@@ -321,8 +323,8 @@ function renderPayables() {
         ? `<span class="badge ok">Paga${item.paidAt ? ' em ' + esc(fmt(item.paidAt)) : ''}</span>`
         : (String(item.due || '') < today() ? '<span class="badge danger">Vencida</span>' : '<span class="badge">Pendente</span>');
       const action = item.paid
-        ? `<button type="button" class="small warning-button" data-action="undo-payable-payment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Desfazer baixa</button>`
-        : `<button type="button" class="small green" data-action="pay-bill-installment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Dar baixa</button>`;
+        ? `<button type="button" class="small warning-button" data-action="undo-payable-payment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Desfazer baixa</button><small class="muted">Valor e vencimento preservados no histórico.</small>`
+        : `<button type="button" class="small secondary" data-action="edit-payable-installment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Editar parcela</button><button type="button" class="small green" data-action="pay-bill-installment" data-bill-id="${esc(bill.id)}" data-bill-installment-id="${esc(item.id)}">Dar baixa</button>`;
       return `<div class="payable-installment"><div><b>Parcela ${Number(item.number || 1)}/${parts.length} · ${money(item.value)}</b><small>Vencimento: ${due}</small><div class="payable-status-line">${paymentStatus}</div></div><div class="payable-row-action">${action}</div></div>`;
     }).join('');
     return `<article class="payable-item"><div class="payable-item-head"><div class="payable-title"><h3>${esc(bill.supplier || 'Fornecedor')}</h3><p>${esc(bill.description || 'Lembrete de pagamento')}</p><small>${esc(bill.paymentMethod || 'Forma de pagamento não informada')} · Criado em ${bill.createdAt ? esc(fmt(bill.createdAt)) : 'data não registrada'}</small></div><div class="payable-total"><b>${money(bill.totalAmount)}</b>${payableStatus(bill)}</div></div><div class="payable-progress"><span>Baixado: ${money(paidSum)} de ${money(bill.totalAmount)}</span><span>${parts.filter(item => item.paid).length}/${parts.length} parcelas</span></div>${bill.notes ? `<p class="payable-notes">${esc(bill.notes)}</p>` : ''}<div class="payable-installments-list">${partMarkup || '<div class="empty">Este lembrete ainda não tem parcelas.</div>'}</div><div class="payable-footer">${unpaidParts.length ? `<button type="button" class="small primary" data-action="settle-payable" data-bill-id="${esc(bill.id)}">Quitar todas as parcelas</button>` : ''}${canDelete ? `<button type="button" class="small danger-button" data-action="delete-payable" data-bill-id="${esc(bill.id)}">Excluir lembrete</button>` : '<small class="muted">O histórico permanece porque já há baixa registrada.</small>'}</div></article>`;
@@ -338,6 +340,96 @@ function addMonthsClamped(dateString, months) {
   const finalDay = Math.min(day, lastDay);
   return `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}-${String(finalDay).padStart(2, '0')}`;
 }
+
+function isValidPayableDate(dateString) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString || ''))) return false;
+  const [year, month, day] = String(dateString).split('-').map(Number);
+  const parsed = new Date(year, month - 1, day, 12, 0, 0);
+  return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}
+
+function payableTotalCents(bill, replacementInstallmentId = null, replacementValueCents = null) {
+  return safeBillInstallments(bill).reduce((sum, installment) => {
+    const cents = installment.id === replacementInstallmentId && replacementValueCents !== null
+      ? replacementValueCents
+      : Math.round(Number(installment.value || 0) * 100);
+    return sum + cents;
+  }, 0);
+}
+
+function updatePayableEditPreview() {
+  const bill = (db.bills || []).find(item => item.id === editingPayableBillId);
+  const installment = bill && safeBillInstallments(bill).find(item => item.id === editingPayableInstallmentId);
+  const preview = $('editPayableTotalPreview');
+  if (!bill || !installment || !preview) return;
+  const rawValue = Number($('editPayableValue').value);
+  const cents = Number.isFinite(rawValue) && rawValue >= 0 ? Math.round(rawValue * 100) : null;
+  const totalCents = cents === null ? payableTotalCents(bill) : payableTotalCents(bill, installment.id, cents);
+  preview.textContent = `Novo total deste lembrete: ${money(totalCents / 100)}. O total corresponde à soma das parcelas, incluindo as já pagas.`;
+}
+
+window.editPayableInstallment = (billId, installmentId) => {
+  const bill = (db.bills || []).find(item => item.id === billId);
+  const installment = bill && safeBillInstallments(bill).find(item => item.id === installmentId);
+  if (!bill || !installment) return;
+  if (installment.paid) {
+    alert('Esta parcela já foi baixada. Para preservar o histórico financeiro, seu valor e vencimento não podem ser editados.');
+    return;
+  }
+  editingPayableBillId = billId;
+  editingPayableInstallmentId = installmentId;
+  $('editPayableContext').textContent = `${bill.supplier || 'Fornecedor'} · Parcela ${Number(installment.number || 1)}/${safeBillInstallments(bill).length}`;
+  $('editPayableValue').value = Number(installment.value || 0).toFixed(2);
+  $('editPayableDue').value = installment.due || '';
+  updatePayableEditPreview();
+  $('editPayableInstallmentDlg').showModal();
+  $('editPayableValue').focus();
+};
+
+$('editPayableValue').addEventListener('input', updatePayableEditPreview);
+$('cancelEditPayableInstallment').onclick = () => {
+  $('editPayableInstallmentForm').reset();
+  $('editPayableInstallmentDlg').close();
+  editingPayableBillId = null;
+  editingPayableInstallmentId = null;
+};
+$('editPayableInstallmentForm').onsubmit = event => {
+  event.preventDefault();
+  const bill = (db.bills || []).find(item => item.id === editingPayableBillId);
+  const installment = bill && safeBillInstallments(bill).find(item => item.id === editingPayableInstallmentId);
+  if (!bill || !installment) {
+    alert('Não foi possível localizar esta parcela. Feche a janela e tente novamente.');
+    $('editPayableInstallmentDlg').close();
+    return;
+  }
+  if (installment.paid) {
+    alert('Esta parcela já foi baixada e não pode ser editada.');
+    $('editPayableInstallmentDlg').close();
+    return;
+  }
+  const amount = Number($('editPayableValue').value);
+  const due = $('editPayableDue').value;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert('O valor da parcela precisa ser maior que zero.');
+    $('editPayableValue').focus();
+    return;
+  }
+  if (!isValidPayableDate(due)) {
+    alert('Informe uma data de vencimento válida.');
+    $('editPayableDue').focus();
+    return;
+  }
+  installment.value = Math.round(amount * 100) / 100;
+  installment.due = due;
+  bill.totalAmount = payableTotalCents(bill) / 100;
+  bill.updatedAt = today();
+  $('editPayableInstallmentDlg').close();
+  $('editPayableInstallmentForm').reset();
+  editingPayableBillId = null;
+  editingPayableInstallmentId = null;
+  save();
+  renderPayables();
+};
 
 $('newPayable').onclick = () => {
   $('payableForm').reset();
@@ -445,6 +537,7 @@ document.addEventListener('click', event => {
     case 'undo-payable-payment': window.undoPayablePayment(billId, billInstallmentId); break;
     case 'settle-payable': window.settlePayable(billId); break;
     case 'delete-payable': window.deletePayable(billId); break;
+    case 'edit-payable-installment': window.editPayableInstallment(billId, billInstallmentId); break;
   }
 });
 

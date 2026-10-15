@@ -1,4 +1,4 @@
-const CACHE = 'perfumaria-fiado-v12-pin-contas-pagar';
+const CACHE = 'perfumaria-fiado-v13-editar-parcelas';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './qrcode.js',
   './firebase-config.js', './manifest.json', './brand-mark.svg',

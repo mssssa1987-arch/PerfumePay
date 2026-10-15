@@ -1,0 +1,30 @@
+PERFUMEPAY — CONTAS A PAGAR: EDIÇÃO DE PARCELAS (v13)
+
+NOVIDADES
+- Em cada parcela ainda em aberto aparece “Editar parcela”.
+- É possível mudar o valor e a data de vencimento daquela parcela independentemente das outras.
+- Isso permite registrar descontos diferentes por parcela e corrigir datas manualmente.
+- As datas inicialmente sugeridas continuam sendo calculadas por mês do calendário, preservando o dia quando possível e ajustando ao último dia do mês quando necessário (ex.: dia 31 passa para 28/29 em fevereiro e volta ao dia 31 no mês seguinte). Não são intervalos fixos de 30 dias.
+- Ao salvar uma mudança de valor, o total do lembrete é recalculado pela soma de todas as parcelas.
+- Parcelas já baixadas não podem ter valor/data alterados; isso preserva o histórico do pagamento. Se uma baixa foi registrada por engano, use “Desfazer baixa” primeiro, revise e depois edite a parcela.
+
+COMO ATUALIZAR NO GITHUB
+1. Baixe e extraia PerfumePay_Contas_a_Pagar_Editar_Parcelas.zip.
+2. Abra o repositório do PerfumePay e localize a pasta que contém o index.html publicado.
+3. Substitua somente app.js, index.html, style.css e sw.js pelos arquivos do ZIP.
+4. Não substitua firebase-config.js, qrcode.js, manifest.json, ícones ou brand-mark.svg. Não altere as regras do Firebase.
+5. Faça o commit e aguarde a publicação.
+6. Abra https://mssssa1987-arch.github.io/PerfumePay/ novamente. Se aparecer a versão antiga, feche as abas do app e recarregue a página.
+7. Confirme no rodapé o marcador “PIN + Contas a pagar v13”.
+
+TESTE RECOMENDADO
+1. Com dados fictícios, cadastre um lembrete de R$ 100,00 em 3 parcelas.
+2. Em uma parcela em aberto, clique “Editar parcela”, mude o valor (por exemplo, R$ 30,00) e altere a data. Confira a prévia do total, salve e confira a lista. O total do lembrete deve ser a soma atualizada das três parcelas.
+3. Edite outra parcela e escolha uma data específica no calendário (ex.: dia 28, 30 ou 31, conforme o mês).
+4. Dê baixa em uma parcela. Confirme que o botão de edição deixa de aparecer para ela e que o valor/data permanecem no histórico.
+5. Atualize a página e verifique se as alterações continuam salvas no Firebase.
+
+OBSERVAÇÕES
+- Os valores devem ser maiores que zero e as datas precisam ser datas de calendário válidas.
+- A alteração de uma parcela não confirma nem executa o pagamento; é apenas um ajuste do lembrete.
+- Continue usando dados fictícios até concluir os testes na sua conta.
